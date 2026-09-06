@@ -48,7 +48,12 @@ jq -n --argjson now "$now" '{session_id:"agy-1",observed_at:$now,input_tokens:90
 jq -n --argjson now "$now" '{session_id:"agy-2",observed_at:$now,input_tokens:700,cache_read_tokens:0,cache_creation_tokens:600,model:"Gemini second",provider:"antigravity",deadline:($now+300)}' >"$AGY_STATUSLINE_STATE_DIR/agy-2.json"
 assert_eq "$(agy_usage agy-1 | cut -f1,2,4-10)" $'agy\tagy-1\t900\t800\t100\t0\t0\tGemini live\tantigravity' 'AGY live statusline sidecar takes precedence'
 assert_eq "$(agy_usage agy-2 | cut -f1,2,4-10)" $'agy\tagy-2\t700\t0\t600\t0\t0\tGemini second\tantigravity' 'parallel AGY sidecars remain session-isolated'
+jq --argjson now "$now" '.observed_at = ($now - 180)' "$AGY_STATUSLINE_STATE_DIR/agy-1.json" >"$AGY_STATUSLINE_STATE_DIR/agy-1.tmp" && mv "$AGY_STATUSLINE_STATE_DIR/agy-1.tmp" "$AGY_STATUSLINE_STATE_DIR/agy-1.json"
+assert_eq "$(agy_usage agy-1 | cut -f1,2,4-10)" $'agy\tagy-1\t900\t800\t100\t0\t0\tGemini live\tantigravity' 'AGY hot sidecar survives statusline silence until deadline'
+jq -n --argjson now "$now" '{session_id:"agy-1",observed_at:($now-180),input_tokens:900,cache_read_tokens:800,cache_creation_tokens:100,model:"Gemini live",provider:"antigravity",deadline:($now+300)}' >"$AGY_STATUSLINE_STATE_DIR/agy-1.json"
 update_pane paneAGY agy agy-1 /same; assert_cmd "jq -e '.active.agent == \"agy\" and .active.session_id == \"agy-1\" and .active.deadline == ($now + 300)' \"$(state_path paneAGY)\"" 'AGY state is isolated by agent and native ID and deadline'
+jq --argjson now "$now" '.deadline = ($now - 1)' "$AGY_STATUSLINE_STATE_DIR/agy-1.json" >"$AGY_STATUSLINE_STATE_DIR/agy-1.tmp" && mv "$AGY_STATUSLINE_STATE_DIR/agy-1.tmp" "$AGY_STATUSLINE_STATE_DIR/agy-1.json"
+assert_eq "$(agy_usage agy-1 | cut -f1,2,4-10)" $'agy\tagy-1\t12000\t48900\t3000\t0\t0\tGemini 3.8 Flash\tantigravity' 'expired AGY sidecar falls back to transcript data'
 update_pane paneClaude claude claude-1 /same; assert_cmd "jq -e '.active.agent == \"claude\" and .active.provider == \"anthropic\"' \"$(state_path paneClaude)\"" 'Claude state is isolated by agent and provider'
 mkdir "$STATE_DIR/watcher.lock"; printf '%s\n' 999999 >"$STATE_DIR/watcher.lock/pid"; assert_cmd 'acquire_lock' 'stale lock is recoverable'; cleanup
 if command -v python3 >/dev/null 2>&1; then

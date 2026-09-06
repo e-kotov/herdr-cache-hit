@@ -39,9 +39,10 @@ and the native CLI path `~/.gemini/antigravity-cli/brain/<id>/.system_generated/
 Claude defaults to `$CLAUDE_CONFIG_DIR/projects/<cwd-encoded>/<id>.jsonl`, or
 `~/.claude/projects/...`.
 The AGY statusline writes validated live snapshots to
-`~/.cache/herdr-codex-cache/agy-statusline/<conversation-id>.json`; snapshots
-older than two minutes are ignored. Its source is maintained in chezmoi at
-`dot_gemini/antigravity-cli/executable_statusline.sh`.
+`~/.cache/herdr-codex-cache/agy-statusline/<conversation-id>.json`; a hot
+snapshot remains trusted until the deadline reported by AGY, while cold or
+expired snapshots older than two minutes are ignored. Its source is maintained
+in chezmoi at `dot_gemini/antigravity-cli/executable_statusline.sh`.
 `HERDR_PLUGIN_STATE_DIR` overrides state, lock, and temporary-file storage.
 `jq` is required at runtime. The cache deadline is an adaptive estimate with a
 30-minute floor, not an eviction guarantee; observations are isolated by

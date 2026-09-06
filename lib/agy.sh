@@ -71,11 +71,12 @@ agy_statusline_usage() {
   json=$(jq -e --arg sid "$session_id" --argjson now "$now" '
     select(type == "object" and .session_id == $sid and
     (.observed_at | type) == "number" and (.observed_at | floor) == .observed_at and
-    (.observed_at <= $now) and ($now - .observed_at <= 120) and
+    (.observed_at <= $now) and
     ([.input_tokens,.cache_read_tokens,.cache_creation_tokens]|all(type == "number" and . >= 0 and floor == .)) and
     (.model | type) == "string" and (.provider | type) == "string" and .provider != "" and
     (.deadline | type) == "number" and .deadline == (.deadline | floor) and
-    (.deadline == 0 or .deadline >= $now))
+    (.deadline == 0 or .deadline >= $now) and
+    ((.deadline > $now) or ($now - .observed_at <= 120)))
   ' "$path") || return 1
   observed=$(jq -r .observed_at <<<"$json")
   deadline=$(jq -r .deadline <<<"$json")
