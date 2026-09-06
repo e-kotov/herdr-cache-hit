@@ -5,6 +5,7 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/codex-cache-test.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 export CODEX_SESSIONS_DIR="$TMP/sessions" HERDR_PLUGIN_STATE_DIR="$TMP/state" HODEX_SESSIONS_DIR="$TMP/unused"
 export AGY_STATUSLINE_STATE_DIR="$TMP/agy-statusline"
+export HERDR_PLUGIN_CONFIG_DIR="$TMP/config"
 mkdir -p "$CODEX_SESSIONS_DIR/2026/09/06"
 source "$ROOT/lib/core.sh"; source "$ROOT/lib/codex.sh"; source "$ROOT/lib/agy.sh"; source "$ROOT/lib/claude.sh"; source "$ROOT/lib/cache.sh"
 fail=0
@@ -22,6 +23,10 @@ assert_eq "$(fmt_tokens 0)" 0 'zero formatting'; assert_eq "$(fmt_tokens 10000)"
 init_state; report_pane() { :; }; clear_pane() { :; }
 update_pane paneA "$sid"; d1=$(jq -r .active.deadline "$(state_path paneA)"); update_pane paneA "$sid"; d2=$(jq -r .active.deadline "$(state_path paneA)")
 assert_eq "$d1" "$d2" 'cached records do not extend deadline'
+mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
+printf '%s\n' '{"codex":{"enabled":false}}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
+assert_eq "$(config_bool codex enabled true)" false 'per-agent enabled setting is read'
+rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:01:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":0},"model":"m1","model_provider":"p1"}}' >"$roll"
 update_pane paneA "$sid"; assert_cmd "jq -e '.active == null and (.observations | length) == 1' \"$(state_path paneA)\"" 'cold transition records observation'
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:02:00Z","payload":{"usage":{"input_tokens":1,"cached_input_tokens":1},"model":"m2","model_provider":"p2"}}' >"$roll"

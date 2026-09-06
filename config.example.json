@@ -1,0 +1,26 @@
+{
+  "agy": {
+    "enabled": true,
+    "show_deadline": true,
+    "show_read_tokens": true,
+    "show_write_tokens": true,
+    "show_percentage": false,
+    "show_model": false
+  },
+  "claude": {
+    "enabled": true,
+    "show_deadline": true,
+    "show_read_tokens": true,
+    "show_write_tokens": true,
+    "show_percentage": false,
+    "show_model": false
+  },
+  "codex": {
+    "enabled": true,
+    "show_deadline": true,
+    "show_read_tokens": true,
+    "show_write_tokens": false,
+    "show_percentage": true,
+    "show_model": false
+  }
+}

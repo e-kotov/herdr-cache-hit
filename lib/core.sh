@@ -3,6 +3,8 @@
 readonly HERDR_BIN="${HERDR_BIN_PATH:-herdr}"
 readonly SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${HODEX_SESSIONS_DIR:-$HOME/.codex/sessions}}"
 readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-$HOME/.cache/herdr-codex-cache}"
+readonly CONFIG_DIR="${HERDR_PLUGIN_CONFIG_DIR:-$HOME/.config/herdr/plugins/codex-cache}"
+readonly CONFIG_FILE="$CONFIG_DIR/config.json"
 readonly FLOOR_SECONDS=1800
 readonly DISPLAY_TTL_MS=86400000
 readonly SOURCE="herdr-plugin.codex-cache"
@@ -11,6 +13,12 @@ readonly SEEN_FILE="$STATE_DIR/seen-panes"
 readonly ROLLOUT_INDEX="$STATE_DIR/rollouts.index"
 readonly ROLLOUT_INDEX_TTL=15
 require_runtime() { command -v jq >/dev/null 2>&1 || { echo 'codex-cache: jq is required' >&2; return 1; }; }
+config_value() { [[ -s "$CONFIG_FILE" ]] || return 1; jq -r --arg agent "$1" --arg key "$2" 'if (.[$agent] | type) == "object" and (.[$agent] | has($key)) then .[$agent][$key] else empty end' "$CONFIG_FILE" 2>/dev/null; }
+config_bool() {
+  local value; value=$(config_value "$1" "$2") || value=""
+  case "$value" in true|false) printf '%s\n' "$value" ;; *) printf '%s\n' "$3" ;; esac
+}
+config_agent_enabled() { [[ "$(config_bool "$1" enabled true)" == true ]]; }
 init_state() { mkdir -p "$STATE_DIR" 2>/dev/null || return 1; }
 atomic_install() { mv -f "$1" "$2"; }
 acquire_lock() {

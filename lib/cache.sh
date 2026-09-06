@@ -10,6 +10,7 @@ load_state() {
 update_pane() {
   local pane=$1 agent session_id cwd supplied record state now record_epoch ttl_floor
   if [[ $# -eq 2 ]]; then agent=codex; session_id=$2; cwd=""; supplied=""; else agent=$2; session_id=$3; cwd=${4:-}; supplied=${5:-}; fi
+  config_agent_enabled "$agent" || { clear_pane "$pane" "$agent"; return 0; }
   case "$agent" in
     codex) record=$(codex_usage "$session_id" 2>/dev/null) ;;
     agy) record=$(agy_usage "$session_id" "$supplied" 2>/dev/null) ;;
@@ -52,15 +53,28 @@ update_pane() {
   fi
   local deadline pct total
   deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
+  local show_deadline show_read show_write show_percentage show_model read_text write_text model_text deadline_text
+  show_deadline=$(config_bool "$agent" show_deadline true)
+  show_read=$(config_bool "$agent" show_read_tokens true)
+  show_write=$(config_bool "$agent" show_write_tokens true)
+  show_percentage=$(config_bool "$agent" show_percentage true)
+  show_model=$(config_bool "$agent" show_model false)
+  deadline_text=""
+  [[ "$show_deadline" == true && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]] && deadline_text="~$(fmt_clock "$deadline")"
+  read_text=""; write_text=""
+  [[ "$show_read" == true ]] && read_text="⇣$(fmt_tokens "$read")"
+  [[ "$show_write" == true ]] && write_text="⇡$(fmt_tokens "$write")"
+  model_text=""; [[ "$show_model" == true && -n "$model" ]] && model_text="$model"
   if [[ "$agent" == codex ]]; then
     pct=0; [[ "$input" -gt 0 ]] && pct=$((read*100/input)); [[ "$pct" -gt 100 ]] && pct=100
-    if [[ "$read" -gt 0 && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then report_pane "$pane" "$agent" "🔥~$(fmt_clock "$deadline") ${pct}% ⇣$(fmt_tokens "$read")" "$(( (deadline-now)*1000 ))" || true
-    elif [[ "$read" -gt 0 ]]; then report_pane "$pane" "$agent" "❄cold ${pct}% ⇣$(fmt_tokens "$read")" "$DISPLAY_TTL_MS" || true
-    else report_pane "$pane" "$agent" '❄cold 0% ⇣0' "$DISPLAY_TTL_MS" || true; fi
+    local pct_text; pct_text=""; [[ "$show_percentage" == true ]] && pct_text="${pct}%"
+    if [[ "$read" -gt 0 && -n "$deadline_text" ]]; then report_pane "$pane" "$agent" "🔥$deadline_text $pct_text $read_text $model_text" "$(( (deadline-now)*1000 ))" || true
+    elif [[ "$read" -gt 0 ]]; then report_pane "$pane" "$agent" "❄cold $pct_text $read_text $model_text" "$DISPLAY_TTL_MS" || true
+    else report_pane "$pane" "$agent" "❄cold ${pct_text:-} $read_text $model_text" "$DISPLAY_TTL_MS" || true; fi
   else
-    total=$((read + write)); if [[ "$total" -gt 0 && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then
-      report_pane "$pane" "$agent" "🔥~$(fmt_clock "$deadline") ⇡$(fmt_tokens "$write") ⇣$(fmt_tokens "$read")" "$(( (deadline-now)*1000 ))" || true
-    elif [[ "$total" -gt 0 ]]; then report_pane "$pane" "$agent" "❄cold ⇡$(fmt_tokens "$write") ⇣$(fmt_tokens "$read")" "$DISPLAY_TTL_MS" || true
-    else report_pane "$pane" "$agent" '❄cold ⇡0 ⇣0' "$DISPLAY_TTL_MS" || true; fi
+    total=$((read + write)); if [[ "$total" -gt 0 && -n "$deadline_text" ]]; then
+      report_pane "$pane" "$agent" "🔥$deadline_text $write_text $read_text $model_text" "$(( (deadline-now)*1000 ))" || true
+    elif [[ "$total" -gt 0 ]]; then report_pane "$pane" "$agent" "❄cold $write_text $read_text $model_text" "$DISPLAY_TTL_MS" || true
+    else report_pane "$pane" "$agent" "❄cold $write_text $read_text $model_text" "$DISPLAY_TTL_MS" || true; fi
   fi
 }

@@ -24,6 +24,27 @@ Remove it with `herdr plugin unlink codex-cache`. Herdr invokes the
 lock-protected one-shot scanner on startup, handoff, and supported pane
 lifecycle/status events; no background process is left running.
 
+## Configuration
+
+Configuration is optional and is read on every scan. Get the stable per-plugin
+directory with:
+
+```bash
+herdr plugin config-dir codex-cache
+```
+
+Copy [`config.example.json`](config.example.json) there as `config.json` and
+edit the three independent agent sections: `agy`, `claude`, and `codex`.
+Each supports `enabled`, `show_deadline`, `show_read_tokens`,
+`show_write_tokens`, `show_percentage`, and `show_model`. Invalid or missing
+settings use the defaults in the example. Set `enabled` to `false` to clear
+that agent's cache token without disabling the other agents. Changes apply on
+the next Herdr scan; reinstallation is not required.
+
+The plugin controls the token contents. Herdr's own theme controls its display
+colors and font styling; ANSI bold/color settings are not currently promised
+for plugin metadata tokens.
+
 ## Data and compatibility
 
 The watcher reads only pane identity, native session identity, cwd (for Claude's
