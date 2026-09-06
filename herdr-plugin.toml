@@ -1,4 +1,4 @@
-id = "ek.codex-cache"
+id = "codex-cache"
 name = "Codex Cache HUD"
 version = "0.1.0"
 min_herdr_version = "0.7.0"
@@ -6,4 +6,20 @@ description = "Report Codex prompt-cache usage for Herdr Codex panes"
 platforms = ["macos"]
 
 [[startup]]
+command = ["bash", "watch.sh"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["bash", "watch.sh"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["bash", "watch.sh"]
+
+[[events]]
+on = "pane.closed"
+command = ["bash", "watch.sh"]
+
+[[events]]
+on = "pane.exited"
 command = ["bash", "watch.sh"]

@@ -1,7 +1,7 @@
+# Markdown is documentation-only in this repository; keep the plugin README.
+*.md
+!README.md
+
+# Local/runtime artifacts.
 .DS_Store
-.venv/
-node_modules/
-dist/
-build/
-coverage/
 *.log
