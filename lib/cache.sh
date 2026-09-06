@@ -16,7 +16,14 @@ update_pane() {
     claude) record=$(claude_usage "$session_id" "$cwd" "$supplied" 2>/dev/null) ;;
     *) clear_pane "$pane" "$agent"; return 0 ;;
   esac
-  [[ -n "$record" ]] || { clear_pane "$pane" "$agent"; return 0; }
+  if [[ -z "$record" ]]; then
+    if [[ "$agent" == agy ]]; then
+      report_pane "$pane" "$agent" '❄cold' "$DISPLAY_TTL_MS" || true
+    else
+      clear_pane "$pane" "$agent"
+    fi
+    return 0
+  fi
   local rec_agent rec_sid ts input read write write5m write1h model provider source_path source_deadline
   IFS=$'\t' read -r rec_agent rec_sid ts input read write write5m write1h model provider source_path source_deadline <<<"$record"
   : "$source_path"
