@@ -17,8 +17,8 @@ update_pane() {
     *) clear_pane "$pane" "$agent"; return 0 ;;
   esac
   [[ -n "$record" ]] || { clear_pane "$pane" "$agent"; return 0; }
-  local rec_agent rec_sid ts input read write write5m write1h model provider source_path
-  IFS=$'\t' read -r rec_agent rec_sid ts input read write write5m write1h model provider source_path <<<"$record"
+  local rec_agent rec_sid ts input read write write5m write1h model provider source_path source_deadline
+  IFS=$'\t' read -r rec_agent rec_sid ts input read write write5m write1h model provider source_path source_deadline <<<"$record"
   : "$source_path"
   [[ "$rec_agent" == "$agent" && "$rec_sid" == "$session_id" ]] || { clear_pane "$pane" "$agent"; return 0; }
   record_epoch=$(parse_timestamp "$ts") || { clear_pane "$pane" "$agent"; return 0; }
@@ -39,6 +39,9 @@ update_pane() {
     jq --arg sig "$signature" --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" --argjson at "$record_epoch" --argjson floor "$ttl_floor" '
       if (.active == null or .active.agent != $agent or .active.session_id != $sid or .active.model != $model or .active.provider != $provider or .active.signature != $sig)
       then (.observations|map(select(.agent==$agent and .session_id==$sid and .model==$model and .provider==$provider)|.seconds)|if length>=2 then (add/length|floor) else $floor end) as $ttl | .active={agent:$agent,session_id:$sid,model:$model,provider:$provider,signature:$sig,hit_at:$at,deadline:($at+$ttl)} else . end' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+  fi
+  if [[ "$agent" == agy && "$source_deadline" =~ ^[0-9]+$ && "$source_deadline" -gt 0 ]]; then
+    jq --arg agent "$agent" --arg sid "$session_id" --argjson deadline "$source_deadline" 'if .active != null and .active.agent == $agent and .active.session_id == $sid then .active.deadline=$deadline else . end' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
   fi
   local deadline pct total
   deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
