@@ -41,6 +41,11 @@ settings use the defaults in the example. Set `enabled` to `false` to clear
 that agent's cache token without disabling the other agents. Changes apply on
 the next Herdr scan; reinstallation is not required.
 
+By default all agents use the same compact display: estimated expiry, cache
+percentage, and cached/read tokens. Cache-written tokens are hidden by default
+because they are less useful for judging reuse, but can be enabled with
+`show_write_tokens: true`.
+
 The plugin controls the token contents. Herdr's own theme controls its display
 colors and font styling; ANSI bold/color settings are not currently promised
 for plugin metadata tokens.

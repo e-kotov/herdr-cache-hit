@@ -56,7 +56,7 @@ update_pane() {
   local show_deadline show_read show_write show_percentage show_model read_text write_text model_text deadline_text
   show_deadline=$(config_bool "$agent" show_deadline true)
   show_read=$(config_bool "$agent" show_read_tokens true)
-  show_write=$(config_bool "$agent" show_write_tokens true)
+  show_write=$(config_bool "$agent" show_write_tokens false)
   show_percentage=$(config_bool "$agent" show_percentage true)
   show_model=$(config_bool "$agent" show_model false)
   deadline_text=""
@@ -72,9 +72,11 @@ update_pane() {
     elif [[ "$read" -gt 0 ]]; then report_pane "$pane" "$agent" "❄cold $pct_text $read_text $model_text" "$DISPLAY_TTL_MS" || true
     else report_pane "$pane" "$agent" "❄cold ${pct_text:-} $read_text $model_text" "$DISPLAY_TTL_MS" || true; fi
   else
-    total=$((read + write)); if [[ "$total" -gt 0 && -n "$deadline_text" ]]; then
-      report_pane "$pane" "$agent" "🔥$deadline_text $write_text $read_text $model_text" "$(( (deadline-now)*1000 ))" || true
-    elif [[ "$total" -gt 0 ]]; then report_pane "$pane" "$agent" "❄cold $write_text $read_text $model_text" "$DISPLAY_TTL_MS" || true
-    else report_pane "$pane" "$agent" "❄cold $write_text $read_text $model_text" "$DISPLAY_TTL_MS" || true; fi
+    total=$((input + read + write)); pct=0; [[ "$total" -gt 0 ]] && pct=$((read*100/total)); [[ "$pct" -gt 100 ]] && pct=100
+    pct_text=""; [[ "$show_percentage" == true ]] && pct_text="${pct}%"
+    if [[ "$total" -gt 0 && -n "$deadline_text" ]]; then
+      report_pane "$pane" "$agent" "🔥$deadline_text $pct_text $read_text $write_text $model_text" "$(( (deadline-now)*1000 ))" || true
+    elif [[ "$total" -gt 0 ]]; then report_pane "$pane" "$agent" "❄cold $pct_text $read_text $write_text $model_text" "$DISPLAY_TTL_MS" || true
+    else report_pane "$pane" "$agent" "❄cold $pct_text $read_text $write_text $model_text" "$DISPLAY_TTL_MS" || true; fi
   fi
 }
