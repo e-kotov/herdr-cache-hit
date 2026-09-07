@@ -14,10 +14,25 @@ readonly ROLLOUT_INDEX="$STATE_DIR/rollouts.index"
 readonly ROLLOUT_INDEX_TTL=15
 readonly OBSERVATIONS_FILE="$STATE_DIR/observations.json"
 require_runtime() { command -v jq >/dev/null 2>&1 || { echo 'cache-hit: jq is required' >&2; return 1; }; }
-config_value() { [[ -s "$CONFIG_FILE" ]] || return 1; jq -r --arg agent "$1" --arg key "$2" 'if (.[$agent] | type) == "object" and (.[$agent] | has($key)) then .[$agent][$key] else empty end' "$CONFIG_FILE" 2>/dev/null; }
+config_value() {
+  [[ -s "$CONFIG_FILE" ]] || return 1
+  jq -r --arg agent "$1" --arg key "$2" '
+    if (.[$agent] | type) == "object" and (.[$agent] | has($key)) then .[$agent][$key]
+    elif (type == "object" and has($key)) then .[$key]
+    else empty end
+  ' "$CONFIG_FILE" 2>/dev/null
+}
 config_bool() {
   local value; value=$(config_value "$1" "$2") || value=""
   case "$value" in true|false) printf '%s\n' "$value" ;; *) printf '%s\n' "$3" ;; esac
+}
+config_str() {
+  local value; value=$(config_value "$1" "$2") || value=""
+  if [[ -n "$value" ]]; then printf '%s\n' "$value"; else printf '%s\n' "$3"; fi
+}
+config_int() {
+  local value; value=$(config_value "$1" "$2") || value=""
+  if [[ "$value" =~ ^[0-9]+$ ]]; then printf '%s\n' "$value"; else printf '%s\n' "$3"; fi
 }
 config_agent_enabled() { [[ "$(config_bool "$1" enabled true)" == true ]]; }
 init_state() { mkdir -p "$STATE_DIR" 2>/dev/null || return 1; }

@@ -17,6 +17,10 @@ on = "pane.agent_status_changed"
 command = ["bash", "watch.sh"]
 
 [[events]]
+on = "pane.focused"
+command = ["bash", "watch.sh"]
+
+[[events]]
 on = "pane.closed"
 command = ["bash", "watch.sh"]
 

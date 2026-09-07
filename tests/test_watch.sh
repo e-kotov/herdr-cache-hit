@@ -132,4 +132,32 @@ assert_cmd "grep -q 'p4.*agent opencode.*cache=' \"$reports\"" 'watcher reports 
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'closed pane is cleared'
+
+# Configurable symbols and expiring threshold tests
+now=$(date +%s)
+last_reported=""
+report_pane() { last_reported="$3"; }
+sig="codex|s1|m|p|1000|800|0|0|0"
+codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
+
+# 1. Hot state: deadline 10 minutes ahead (> 180s)
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
+update_pane paneSym codex s1
+assert_cmd "[[ \"$last_reported\" == *'♨️'* ]]" 'hot cache displays ♨️ by default'
+
+# 2. Expiring state: deadline 2 minutes ahead (<= 180s)
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1680),deadline:($now+120)},observations:[]}' >"$(state_path paneSym)"
+update_pane paneSym codex s1
+assert_cmd "[[ \"$last_reported\" == *'⚠️'* ]]" 'expiring cache under 3m displays ⚠️ by default'
+
+# 3. Custom config override: custom hot and expiring symbols
+mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
+printf '%s\n' '{"hot_symbol":"🔥","expiring_symbol":"⚡","expiring_threshold_seconds":60}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
+update_pane paneSym codex s1
+assert_cmd "[[ \"$last_reported\" == *'🔥'* ]]" 'custom hot symbol and threshold are respected'
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1770),deadline:($now+30)},observations:[]}' >"$(state_path paneSym)"
+update_pane paneSym codex s1
+assert_cmd "[[ \"$last_reported\" == *'⚡'* ]]" 'custom expiring symbol is respected'
+rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
+
 exit "$fail"

@@ -1,4 +1,8 @@
 {
+  "hot_symbol": "♨️",
+  "expiring_symbol": "⚠️",
+  "cold_symbol": "❄cold",
+  "expiring_threshold_seconds": 180,
   "agy": {
     "enabled": true,
     "show_deadline": true,
@@ -16,6 +20,14 @@
     "show_model": false
   },
   "codex": {
+    "enabled": true,
+    "show_deadline": true,
+    "show_read_tokens": true,
+    "show_write_tokens": false,
+    "show_percentage": true,
+    "show_model": false
+  },
+  "opencode": {
     "enabled": true,
     "show_deadline": true,
     "show_read_tokens": true,
