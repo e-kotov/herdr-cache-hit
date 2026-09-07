@@ -2,18 +2,18 @@
 # shellcheck disable=SC2034
 readonly HERDR_BIN="${HERDR_BIN_PATH:-herdr}"
 readonly SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${HODEX_SESSIONS_DIR:-$HOME/.codex/sessions}}"
-readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/codex-cache}"
-readonly CONFIG_DIR="${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/config/codex-cache}"
+readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/cache-hit}"
+readonly CONFIG_DIR="${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/config/cache-hit}"
 readonly CONFIG_FILE="$CONFIG_DIR/config.json"
 readonly FLOOR_SECONDS=1800
 readonly DISPLAY_TTL_MS=86400000
-readonly SOURCE="herdr-plugin.codex-cache"
+readonly SOURCE="herdr-plugin.cache-hit"
 readonly LOCK_DIR="$STATE_DIR/watcher.lock"
 readonly SEEN_FILE="$STATE_DIR/seen-panes"
 readonly ROLLOUT_INDEX="$STATE_DIR/rollouts.index"
 readonly ROLLOUT_INDEX_TTL=15
 readonly OBSERVATIONS_FILE="$STATE_DIR/observations.json"
-require_runtime() { command -v jq >/dev/null 2>&1 || { echo 'codex-cache: jq is required' >&2; return 1; }; }
+require_runtime() { command -v jq >/dev/null 2>&1 || { echo 'cache-hit: jq is required' >&2; return 1; }; }
 config_value() { [[ -s "$CONFIG_FILE" ]] || return 1; jq -r --arg agent "$1" --arg key "$2" 'if (.[$agent] | type) == "object" and (.[$agent] | has($key)) then .[$agent][$key] else empty end' "$CONFIG_FILE" 2>/dev/null; }
 config_bool() {
   local value; value=$(config_value "$1" "$2") || value=""

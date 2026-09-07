@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"; TMP=$(mktemp -d "${TMPDIR:-/tmp}/codex-cache-bench.XXXXXX"); trap 'rm -rf "$TMP"' EXIT
+ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"; TMP=$(mktemp -d "${TMPDIR:-/tmp}/cache-hit-bench.XXXXXX"); trap 'rm -rf "$TMP"' EXIT
 export CODEX_SESSIONS_DIR="$TMP/sessions"; mkdir -p "$CODEX_SESSIONS_DIR/2026/09/06"; f="$CODEX_SESSIONS_DIR/2026/09/06/rollout-bench.jsonl"
 printf '%s\n' '{"type":"session_meta","payload":{"id":"bench"}}' >"$f"
 for i in $(seq 1 100); do printf '%s\n' '{"type":"token_usage_record","timestamp":"2026-09-06T10:00:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":500},"model":"m","model_provider":"p"}}' >>"$f"; done

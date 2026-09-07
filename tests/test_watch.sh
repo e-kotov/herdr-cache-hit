@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/codex-cache-test.XXXXXX")
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/cache-hit-test.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 export CODEX_SESSIONS_DIR="$TMP/sessions" HERDR_PLUGIN_STATE_DIR="$TMP/state" HODEX_SESSIONS_DIR="$TMP/unused"
 export AGY_STATUSLINE_STATE_DIR="$TMP/agy-statusline"

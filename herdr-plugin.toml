@@ -1,5 +1,5 @@
-id = "codex-cache"
-name = "Codex Cache HUD"
+id = "cache-hit"
+name = "Cache Hit"
 version = "0.1.0"
 min_herdr_version = "0.7.0"
 description = "Report prompt-cache usage for Herdr Codex, AGY, Claude, and OpenCode panes"

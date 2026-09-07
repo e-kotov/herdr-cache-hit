@@ -1,6 +1,6 @@
 # Herdr Agent Cache HUD
 
-`codex-cache` is a macOS and Linux Herdr plugin that reports per-conversation cache usage
+`cache-hit` is a macOS and Linux Herdr plugin that reports per-conversation cache usage
 for Codex, AGY (`agy`/Antigravity CLI), Claude, and OpenCode as the `cache` pane token.
 It reads local rollout/transcript metadata; prompt contents are never
 transmitted. AGY prefers the live statusline sidecar written by the
@@ -15,12 +15,12 @@ AGY panes can run in parallel without sharing cache state.
 cd /Users/ek/home/sync/personal/code_repository/pet_projects/harness-plugins
 bash -n herdr-cache-plugin/watch.sh
 shellcheck herdr-cache-plugin/watch.sh herdr-cache-plugin/lib/*.sh
-herdr plugin unlink codex-cache 2>/dev/null || true
+herdr plugin unlink cache-hit 2>/dev/null || true
 herdr plugin link "$PWD/herdr-cache-plugin"
 herdr plugin list
 ```
 
-Remove it with `herdr plugin unlink codex-cache`. Herdr invokes the
+Remove it with `herdr plugin unlink cache-hit`. Herdr invokes the
 lock-protected one-shot scanner on startup, handoff, and supported pane
 lifecycle/status events; no background process is left running.
 
@@ -30,7 +30,7 @@ Configuration is optional and is read on every scan. Get the stable per-plugin
 directory with:
 
 ```bash
-herdr plugin config-dir codex-cache
+herdr plugin config-dir cache-hit
 ```
 
 Copy [`config.example.json`](config.example.json) there as `config.json` and
@@ -76,7 +76,7 @@ in chezmoi at `dot_gemini/antigravity-cli/executable_statusline.sh`.
 30-minute floor, not an eviction guarantee; observations are isolated by
 agent, session, model, and provider and survive Herdr restarts.
 
-Current identity: `codex-cache`, name `Codex Cache HUD`, version `0.1.0`,
+Current identity: `cache-hit`, name `Cache Hit`, version `0.1.0`,
 macOS and Linux, minimum Herdr `0.7.0`.
 
 ## Verification
