@@ -27,8 +27,14 @@ config_bool() {
   case "$value" in true|false) printf '%s\n' "$value" ;; *) printf '%s\n' "$3" ;; esac
 }
 config_str() {
-  local value; value=$(config_value "$1" "$2") || value=""
-  if [[ -n "$value" ]]; then printf '%s\n' "$value"; else printf '%s\n' "$3"; fi
+  local agent=$1 key=$2 default=$3 value
+  [[ -s "$CONFIG_FILE" ]] || { printf '%s\n' "$default"; return 0; }
+  value=$(jq -r --arg agent "$agent" --arg key "$key" --arg def "$default" '
+    if (.[$agent] | type) == "object" and (.[$agent] | has($key)) then (.[$agent][$key] | tostring)
+    elif (type == "object" and has($key)) then (.[$key] | tostring)
+    else $def end
+  ' "$CONFIG_FILE" 2>/dev/null) || value="$default"
+  printf '%s\n' "$value"
 }
 config_int() {
   local value; value=$(config_value "$1" "$2") || value=""
