@@ -1,4 +1,4 @@
-module github.com/ek/harness-plugins/herdr-codex-cache
+module github.com/ek/harness-plugins/herdr-cache-plugin
 
 go 1.24.0
 

@@ -3,7 +3,7 @@ name = "Codex Cache HUD"
 version = "0.1.0"
 min_herdr_version = "0.7.0"
 description = "Report Codex prompt-cache usage for Herdr Codex panes"
-platforms = ["macos"]
+platforms = ["macos", "linux"]
 
 [[startup]]
 command = ["bash", "watch.sh"]

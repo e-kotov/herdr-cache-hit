@@ -18,6 +18,14 @@ printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111","cwd":"/same"}}' 
 printf '%s\n' '{"type":"session_meta","payload":{"id":"wrong"}}' >"$TMP/rollout-bbb222.jsonl"
 assert_eq "$(rollout_for_session "$sid")" "$roll" 'native ID selects exact rollout'
 assert_eq "$(rollout_for_session bbb222 || true)" '' 'wrong rollout identity is rejected'
+
+# UUIDv7 fast path test: historical session from May 2026 resolved without scanning
+uuid7="019e0779-180e-7ec2-9d3c-e18de4536265"
+mkdir -p "$CODEX_SESSIONS_DIR/2026/05/08"
+roll7="$CODEX_SESSIONS_DIR/2026/05/08/rollout-$uuid7.jsonl"
+printf '%s\n' "{\"type\":\"session_meta\",\"payload\":{\"id\":\"$uuid7\"}}" >"$roll7"
+assert_eq "$(rollout_for_session "$uuid7")" "$roll7" 'UUIDv7 timestamp selects exact historical rollout'
+
 assert_eq "$(latest_usage "$roll" "$sid")" $'2026-09-06T10:00:00Z\t1000\t500\tm1\tp1' 'malformed lines are ignored'
 assert_eq "$(fmt_tokens 0)" 0 'zero formatting'; assert_eq "$(fmt_tokens 10000)" 10.0k 'thousands formatting'; assert_eq "$(fmt_tokens 2000000)" 2.0M 'millions formatting'
 init_state; report_pane() { :; }; clear_pane() { :; }

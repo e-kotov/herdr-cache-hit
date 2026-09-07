@@ -13,10 +13,10 @@ AGY panes can run in parallel without sharing cache state.
 
 ```bash
 cd /Users/ek/home/sync/personal/code_repository/pet_projects/harness-plugins
-bash -n herdr-codex-cache/watch.sh
-shellcheck herdr-codex-cache/watch.sh herdr-codex-cache/lib/*.sh
+bash -n herdr-cache-plugin/watch.sh
+shellcheck herdr-cache-plugin/watch.sh herdr-cache-plugin/lib/*.sh
 herdr plugin unlink codex-cache 2>/dev/null || true
-herdr plugin link "$PWD/herdr-codex-cache"
+herdr plugin link "$PWD/herdr-cache-plugin"
 herdr plugin list
 ```
 
@@ -75,17 +75,17 @@ in chezmoi at `dot_gemini/antigravity-cli/executable_statusline.sh`.
 agent, session, model, and provider and survive Herdr restarts.
 
 Current identity: `codex-cache`, name `Codex Cache HUD`, version `0.1.0`,
-macOS, minimum Herdr `0.7.0`.
+macOS and Linux, minimum Herdr `0.7.0`.
 
 ## Verification
 
 ```bash
-bash -n herdr-codex-cache/watch.sh
-shellcheck herdr-codex-cache/watch.sh herdr-codex-cache/lib/*.sh
-bash herdr-codex-cache/tests/test_watch.sh
-bash herdr-codex-cache/tests/benchmark.sh
+bash -n herdr-cache-plugin/watch.sh
+shellcheck herdr-cache-plugin/watch.sh herdr-cache-plugin/lib/*.sh
+bash herdr-cache-plugin/tests/test_watch.sh
+bash herdr-cache-plugin/tests/benchmark.sh
 ```
 
-The AGY helper is built for the current macOS arm64 target with
+The AGY helper is built for macOS arm64 and Linux amd64 with
 `scripts/build-agy-usage.sh`; Go and CGO are build-time only and are not
 required at runtime.

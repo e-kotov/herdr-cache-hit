@@ -22,9 +22,9 @@ claude_latest_usage() {
       select((($u.cache_read_input_tokens // 0) + ($u.cache_creation_input_tokens // 0) + (($u.cache_creation // {}).ephemeral_5m_input_tokens // 0) + (($u.cache_creation // {}).ephemeral_1h_input_tokens // 0)) > 0) |
       {ts:(.timestamp // .created_at // .createdAt // .message.timestamp // ""),
        input:($u.input_tokens // null), read:($u.cache_read_input_tokens // null),
-       write5m:(($u.cache_creation // {}).ephemeral_5m_input_tokens // 0),
-       write1h:(($u.cache_creation // {}).ephemeral_1h_input_tokens // 0),
-       write:(($u.cache_creation_input_tokens // ((($u.cache_creation // {}).ephemeral_5m_input_tokens // 0) + (($u.cache_creation // {}).ephemeral_1h_input_tokens // 0))) // null), model:(.message.model // .model // ""),
+       write5m:((($u.cache_creation // {}).ephemeral_5m_input_tokens) // 0),
+       write1h:((($u.cache_creation // {}).ephemeral_1h_input_tokens) // 0),
+       write:(($u.cache_creation_input_tokens // ((((($u.cache_creation // {}).ephemeral_5m_input_tokens) // 0) + ((($u.cache_creation // {}).ephemeral_1h_input_tokens) // 0)))) // null), model:(.message.model // .model // ""),
        provider:(.provider // .model_provider // "anthropic"), source:""} |
       select((.ts|type)=="string" and (.ts|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))) |
       select((.input|type)=="number" and .input >= 0 and (.input|floor)==.input) |

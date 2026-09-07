@@ -57,10 +57,19 @@ agy_native_usage() {
 
 agy_statusline_state_path() {
   local session_id=$1 root key
-  root=${AGY_STATUSLINE_STATE_DIR:-$HOME/.cache/herdr-codex-cache/agy-statusline}
   key=$(printf '%s' "$session_id" | tr -c 'A-Za-z0-9_.-' '_')
   [[ -n "$key" ]] || return 1
-  printf '%s/%s.json\n' "$root" "$key"
+  if [[ -n "${AGY_STATUSLINE_STATE_DIR:-}" ]]; then
+    printf '%s/%s.json\n' "$AGY_STATUSLINE_STATE_DIR" "$key"
+    return 0
+  fi
+  for root in "$HOME/.cache/herdr-cache-plugin/agy-statusline" "$HOME/.cache/herdr-codex-cache/agy-statusline"; do
+    if [[ -s "$root/$key.json" ]]; then
+      printf '%s/%s.json\n' "$root" "$key"
+      return 0
+    fi
+  done
+  printf '%s/%s.json\n' "$HOME/.cache/herdr-cache-plugin/agy-statusline" "$key"
 }
 
 agy_statusline_usage() {
@@ -94,9 +103,9 @@ agy_latest_usage() {
       (.context_window.current_usage // .current_usage // .usage // .message.usage // {}) as $u |
       {ts:(.timestamp // .created_at // .createdAt // .message.timestamp // ""),
        input:($u.input_tokens // null), read:($u.cache_read_input_tokens // null),
-       write5m:($u.cache_creation // {}).ephemeral_5m_input_tokens // 0,
-       write1h:($u.cache_creation // {}).ephemeral_1h_input_tokens // 0,
-       write:($u.cache_creation_input_tokens // ((($u.cache_creation // {}).ephemeral_5m_input_tokens // 0) + (($u.cache_creation // {}).ephemeral_1h_input_tokens // 0)) // null), model:(.model // .message.model // ""),
+       write5m:((($u.cache_creation // {}).ephemeral_5m_input_tokens) // 0),
+       write1h:((($u.cache_creation // {}).ephemeral_1h_input_tokens) // 0),
+       write:($u.cache_creation_input_tokens // (((($u.cache_creation // {}).ephemeral_5m_input_tokens) // 0) + ((($u.cache_creation // {}).ephemeral_1h_input_tokens) // 0)) // null), model:(.model // .message.model // ""),
        provider:(.provider // .model_provider // .message.provider // ""), source:""} |
       select((.ts|type)=="string" and (.ts|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T"))) |
       select((.input|type)=="number" and .input >= 0 and (.input|floor)==.input) |
