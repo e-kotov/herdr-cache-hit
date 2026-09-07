@@ -12,6 +12,7 @@ readonly LOCK_DIR="$STATE_DIR/watcher.lock"
 readonly SEEN_FILE="$STATE_DIR/seen-panes"
 readonly ROLLOUT_INDEX="$STATE_DIR/rollouts.index"
 readonly ROLLOUT_INDEX_TTL=15
+readonly OBSERVATIONS_FILE="$STATE_DIR/observations.json"
 require_runtime() { command -v jq >/dev/null 2>&1 || { echo 'codex-cache: jq is required' >&2; return 1; }; }
 config_value() { [[ -s "$CONFIG_FILE" ]] || return 1; jq -r --arg agent "$1" --arg key "$2" 'if (.[$agent] | type) == "object" and (.[$agent] | has($key)) then .[$agent][$key] else empty end' "$CONFIG_FILE" 2>/dev/null; }
 config_bool() {

@@ -36,9 +36,28 @@ printf '%s\n' '{"codex":{"enabled":false}}' >"$HERDR_PLUGIN_CONFIG_DIR/config.js
 assert_eq "$(config_bool codex enabled true)" false 'per-agent enabled setting is read'
 rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:01:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":0},"model":"m1","model_provider":"p1"}}' >"$roll"
-update_pane paneA "$sid"; assert_cmd "jq -e '.active == null and (.observations | length) == 1' \"$(state_path paneA)\"" 'cold transition records observation'
+update_pane paneA "$sid"; assert_cmd "jq -e '.active == null' \"$(state_path paneA)\"" 'cold transition sets active null'
+assert_cmd "jq -e '.\"p1:m1\" | length == 1' \"$OBSERVATIONS_FILE\"" 'cold transition records observation in shared observations.json'
+
+# Switch to m2/p2 at 10:02:00Z (hit_at = 10:02:00Z, deadline = 10:32:00Z, ttl = 1800)
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:02:00Z","payload":{"usage":{"input_tokens":1,"cached_input_tokens":1},"model":"m2","model_provider":"p2"}}' >"$roll"
 update_pane paneA "$sid"; assert_cmd "jq -e '.active.model == \"m2\" and .active.provider == \"p2\"' \"$(state_path paneA)\"" 'model/provider are isolated'
+
+# Surprise hit past deadline: prompt at 10:47:00Z (45 min = 2700s > 1800s deadline) with cache read hits
+printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:47:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":800},"model":"m2","model_provider":"p2"}}' >"$roll"
+update_pane paneA "$sid"
+assert_cmd "jq -e '.\"p2:m2\" | (length == 1 and .[0] == 2700)' \"$OBSERVATIONS_FILE\"" 'surprise hit past deadline records survival observation'
+
+# Cross-pane sharing: paneB with same model/provider reads from shared observations
+record_observation p2 m2 3300
+learned=$(get_learned_ttl p2 m2 1800)
+assert_eq "$learned" 3000 'shared observations compute learned TTL across panes'
+
+# Prefix shift guardrail: cold drop within 20s does not add to observations
+printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:47:20Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":0},"model":"m2","model_provider":"p2"}}' >"$roll"
+update_pane paneA "$sid"
+assert_cmd "jq -e '.\"p2:m2\" | length == 2' \"$OBSERVATIONS_FILE\"" 'prefix shift under 60s is ignored by observation guardrail'
+
 printf '%s\n' corrupt >"$(state_path paneB)"; update_pane paneB "$sid"; assert_cmd "jq -e . \"$(state_path paneB)\"" 'corrupt state is rebuilt'
 
 # AGY and Claude adapter fixtures exercise native IDs, recent-tail parsing, and

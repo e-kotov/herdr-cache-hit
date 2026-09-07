@@ -1,11 +1,53 @@
 #!/usr/bin/env bash
 state_path() { printf '%s/state-%s.json\n' "$STATE_DIR" "${1//[^A-Za-z0-9_.-]/_}"; }
-valid_state() { jq -e 'type == "object" and (.observations | type == "array") and ((.active == null) or ((.active | type) == "object" and ([.active.agent,.active.session_id,.active.model,.active.provider,.active.signature] | all(type == "string")) and (.active.hit_at | type == "number") and (.active.deadline | type == "number")))' "$1" >/dev/null 2>&1; }
+valid_state() { jq -e 'type == "object" and ((.active == null) or ((.active | type) == "object" and ([.active.agent,.active.session_id,.active.model,.active.provider,.active.signature] | all(type == "string")) and (.active.hit_at | type == "number") and (.active.deadline | type == "number")))' "$1" >/dev/null 2>&1; }
 load_state() {
   local path=$1 tmp
   if [[ ! -s "$path" ]] || ! valid_state "$path"; then
     tmp=$(mktemp "$STATE_DIR/state.XXXXXX") || return 1; printf '%s\n' '{"active":null,"observations":[]}' >"$tmp"; atomic_install "$tmp" "$path"
   fi
+}
+model_key() {
+  local provider=${1:-unknown} model=${2:-default}
+  [[ -n "$provider" ]] || provider=unknown
+  [[ -n "$model" ]] || model=default
+  printf '%s:%s' "$provider" "$model"
+}
+get_learned_ttl() {
+  local provider=$1 model=$2 floor=$3 key ttl
+  key=$(model_key "$provider" "$model")
+  [[ -s "$OBSERVATIONS_FILE" ]] || { printf '%s\n' "$floor"; return 0; }
+  ttl=$(jq -r --arg key "$key" --argjson floor "$floor" '
+    (.[$key] // []) as $obs |
+    if ($obs | length) >= 2 then
+      ($obs | sort) as $s |
+      (if ($s | length) >= 5 then
+        (($s | length) * 0.1 | floor) as $trim |
+        $s[$trim : (($s | length) - $trim)]
+       else $s end) as $inliers |
+      (($inliers | add) / ($inliers | length) | floor) as $avg |
+      [$floor, $avg] | max
+    else
+      $floor
+    end' "$OBSERVATIONS_FILE" 2>/dev/null) || ttl="$floor"
+  [[ "$ttl" =~ ^[0-9]+$ ]] || ttl="$floor"
+  printf '%s\n' "$ttl"
+}
+record_observation() {
+  local provider=$1 model=$2 seconds=$3 key tmp
+  [[ "$seconds" =~ ^[0-9]+$ && "$seconds" -ge 60 ]] || return 0
+  key=$(model_key "$provider" "$model")
+  tmp=$(mktemp "$STATE_DIR/obs.XXXXXX") || return 1
+  if [[ -s "$OBSERVATIONS_FILE" ]] && jq -e 'type == "object"' "$OBSERVATIONS_FILE" >/dev/null 2>&1; then
+    jq --arg key "$key" --argjson sec "$seconds" '
+      .[$key] = (((.[$key] // []) + [$sec]) | .[-25:])
+    ' "$OBSERVATIONS_FILE" >"$tmp" 2>/dev/null && atomic_install "$tmp" "$OBSERVATIONS_FILE"
+  else
+    jq -n --arg key "$key" --argjson sec "$seconds" '
+      { ($key): [$sec] }
+    ' >"$tmp" 2>/dev/null && atomic_install "$tmp" "$OBSERVATIONS_FILE"
+  fi
+  rm -f "$tmp"
 }
 update_pane() {
   local pane=$1 agent session_id cwd supplied record state now record_epoch ttl_floor
@@ -44,14 +86,39 @@ update_pane() {
     else ttl_floor=$FLOOR_SECONDS
     fi
   fi
+
+  local prev_hit_at prev_deadline prev_sig prev_active
+  prev_active=$(jq -r 'if .active != null then "true" else "false" end' "$state" 2>/dev/null || printf "false")
+  prev_hit_at=$(jq -r '.active.hit_at // 0' "$state" 2>/dev/null || printf 0)
+  prev_deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
+  prev_sig=$(jq -r '.active.signature // ""' "$state" 2>/dev/null || printf "")
+
   if [[ "$read" -eq 0 && "$write" -eq 0 ]]; then
-    jq --arg sig "$signature" --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" --argjson at "$record_epoch" '
-      if (.active != null and .active.agent == $agent and .active.session_id == $sid and .active.model == $model and .active.provider == $provider)
-      then .observations=((.observations + [{seconds:(($at-.active.hit_at)|if . < 0 then 0 else . end),agent:$agent,session_id:$sid,model:$model,provider:$provider}])|. [-20:]) else . end | .active=null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+    # Cold drop: if we were previously active, record the survival duration before going cold
+    if [[ "$prev_active" == "true" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 ]]; then
+      local delta=$((record_epoch - prev_hit_at))
+      if (( delta >= 60 )); then
+        record_observation "$provider" "$model" "$delta"
+      fi
+    fi
+    jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
   else
-    jq --arg sig "$signature" --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" --argjson at "$record_epoch" --argjson floor "$ttl_floor" '
-      if (.active == null or .active.agent != $agent or .active.session_id != $sid or .active.model != $model or .active.provider != $provider or .active.signature != $sig)
-      then (.observations|map(select(.agent==$agent and .session_id==$sid and .model==$model and .provider==$provider)|.seconds)|if length>=2 then (add/length|floor) else $floor end) as $ttl | .active={agent:$agent,session_id:$sid,model:$model,provider:$provider,signature:$sig,hit_at:$at,deadline:($at+$ttl)} else . end' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+    # Cache hit or write
+    if [[ "$signature" != "$prev_sig" ]]; then
+      # Surprise hit: prompt arrived after the expected deadline but still hit the cache!
+      if [[ "$read" -gt 0 && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$prev_hit_at" ]]; then
+        local delta=$((record_epoch - prev_hit_at))
+        local prev_ttl=$((prev_deadline - prev_hit_at))
+        if (( delta > prev_ttl && delta >= 60 )); then
+          record_observation "$provider" "$model" "$delta"
+        fi
+      fi
+      local ttl; ttl=$(get_learned_ttl "$provider" "$model" "$ttl_floor")
+      local new_deadline=$((record_epoch + ttl))
+      jq --arg sig "$signature" --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" --argjson at "$record_epoch" --argjson deadline "$new_deadline" '
+        .active = {agent:$agent, session_id:$sid, model:$model, provider:$provider, signature:$sig, hit_at:$at, deadline:$deadline}
+      ' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+    fi
   fi
   if [[ "$agent" == agy && "$source_deadline" =~ ^[0-9]+$ && "$source_deadline" -gt 0 ]]; then
     jq --arg agent "$agent" --arg sid "$session_id" --argjson deadline "$source_deadline" 'if .active != null and .active.agent == $agent and .active.session_id == $sid then .active.deadline=$deadline else . end' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
