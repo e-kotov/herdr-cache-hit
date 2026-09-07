@@ -5,14 +5,21 @@ rollout_for_session() {
 
   # UUIDv7 fast path: Codex session IDs are UUIDv7, whose first 48 bits encode the
   # millisecond creation timestamp. Compute the exact YYYY/MM/DD directory directly
-  # without scanning the directory tree or building indices.
+  # without scanning the directory tree or building indices. Checks UTC, local date,
+  # and +/-1 day around midnight timezone boundaries.
   if [[ "${session_id:14:1}" == "7" && "${#session_id}" -eq 36 ]]; then
     local hex="${session_id:0:8}${session_id:9:4}"
     local sec=$(( 16#$hex / 1000 ))
-    local d_utc d_loc
+    local d_utc d_loc d_prev d_next
     d_utc=$(date -u -r "$sec" +%Y/%m/%d 2>/dev/null || date -u -d "@$sec" +%Y/%m/%d 2>/dev/null)
     d_loc=$(date -r "$sec" +%Y/%m/%d 2>/dev/null || date -d "@$sec" +%Y/%m/%d 2>/dev/null)
-    for candidate in "$SESSIONS_DIR/$d_utc"/*"$session_id"*.jsonl "$SESSIONS_DIR/$d_loc"/*"$session_id"*.jsonl; do
+    d_prev=$(date -u -r "$((sec - 86400))" +%Y/%m/%d 2>/dev/null || date -u -d "@$((sec - 86400))" +%Y/%m/%d 2>/dev/null)
+    d_next=$(date -u -r "$((sec + 86400))" +%Y/%m/%d 2>/dev/null || date -u -d "@$((sec + 86400))" +%Y/%m/%d 2>/dev/null)
+    for candidate in \
+      "$SESSIONS_DIR/$d_utc"/*"$session_id"*.jsonl \
+      "$SESSIONS_DIR/$d_loc"/*"$session_id"*.jsonl \
+      "$SESSIONS_DIR/$d_next"/*"$session_id"*.jsonl \
+      "$SESSIONS_DIR/$d_prev"/*"$session_id"*.jsonl; do
       if [[ -f "$candidate" ]]; then
         meta=$(head -n 100 "$candidate" 2>/dev/null | jq -R -s --arg id "$session_id" '[splits("\n") | fromjson? | select(type == "object" and .type == "session_meta" and .payload.id == $id)] | length' 2>/dev/null) || continue
         if [[ "$meta" == 1 ]]; then
