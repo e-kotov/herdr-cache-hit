@@ -29,10 +29,10 @@ config_bool() {
 config_str() {
   local agent=$1 key=$2 default=$3 value
   [[ -s "$CONFIG_FILE" ]] || { printf '%s\n' "$default"; return 0; }
-  value=$(jq -r --arg agent "$agent" --arg key "$key" --arg def "$default" '
+  value=$(jq -r --arg agent "$agent" --arg key "$key" --arg default_val "$default" '
     if (.[$agent] | type) == "object" and (.[$agent] | has($key)) then (.[$agent][$key] | tostring)
     elif (type == "object" and has($key)) then (.[$key] | tostring)
-    else $def end
+    else $default_val end
   ' "$CONFIG_FILE" 2>/dev/null) || value="$default"
   printf '%s\n' "$value"
 }
