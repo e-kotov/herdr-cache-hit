@@ -2,8 +2,8 @@
 # shellcheck disable=SC2034
 readonly HERDR_BIN="${HERDR_BIN_PATH:-herdr}"
 readonly SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${HODEX_SESSIONS_DIR:-$HOME/.codex/sessions}}"
-readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-$HOME/.cache/herdr-cache-plugin}"
-readonly CONFIG_DIR="${HERDR_PLUGIN_CONFIG_DIR:-$HOME/.config/herdr/plugins/codex-cache}"
+readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/codex-cache}"
+readonly CONFIG_DIR="${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/config/codex-cache}"
 readonly CONFIG_FILE="$CONFIG_DIR/config.json"
 readonly FLOOR_SECONDS=1800
 readonly DISPLAY_TTL_MS=86400000
