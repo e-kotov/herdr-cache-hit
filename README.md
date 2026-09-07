@@ -1,7 +1,7 @@
 # Herdr Agent Cache HUD
 
-`codex-cache` is a macOS Herdr plugin that reports per-conversation cache usage
-for Codex, AGY (`agy`/Antigravity CLI), and Claude as the `cache` pane token.
+`codex-cache` is a macOS and Linux Herdr plugin that reports per-conversation cache usage
+for Codex, AGY (`agy`/Antigravity CLI), Claude, and OpenCode as the `cache` pane token.
 It reads local rollout/transcript metadata; prompt contents are never
 transmitted. AGY prefers the live statusline sidecar written by the
 chezmoi-managed `~/.gemini/antigravity-cli/statusline.sh`, then the packaged
@@ -64,6 +64,8 @@ AGY checks both `~/.gemini/antigravity/brain/<id>/.system_generated/logs/transcr
 and the native CLI path `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`;
 Claude defaults to `$CLAUDE_CONFIG_DIR/projects/<cwd-encoded>/<id>.jsonl`, or
 `~/.claude/projects/...`.
+OpenCode reads the completed message token ledger and cache counters from
+`$OPENCODE_DB_PATH` or `~/.local/share/opencode/opencode.db`.
 The AGY statusline writes validated live snapshots to
 `~/.cache/herdr-codex-cache/agy-statusline/<conversation-id>.json`; a hot
 snapshot remains trusted until the deadline reported by AGY, while cold or

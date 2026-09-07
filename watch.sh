@@ -10,6 +10,8 @@ PLUGIN_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 . "$PLUGIN_DIR/lib/agy.sh"
 # shellcheck source=lib/claude.sh
 . "$PLUGIN_DIR/lib/claude.sh"
+# shellcheck source=lib/opencode.sh
+. "$PLUGIN_DIR/lib/opencode.sh"
 # shellcheck source=lib/cache.sh
 . "$PLUGIN_DIR/lib/cache.sh"
 
@@ -22,7 +24,7 @@ watch_main() {
   local pane_json pane_id agent session_kind session_id cwd session_path pane current rows
   if ! pane_json=$("$HERDR_BIN" pane list 2>/dev/null) || ! jq -e '.result.panes | type == "array"' >/dev/null 2>&1 <<<"$pane_json"; then return 1; fi
   current=$(mktemp "$STATE_DIR/seen.XXXXXX") || return 1
-  rows=$(jq -r '.result.panes[]? | select(.agent == "codex" or .agent == "agy" or .agent == "claude") | [.pane_id, .agent, (.agent_session.kind // ""), (.agent_session.value // ""), (.cwd // .foreground_cwd // ""), (.agent_session.path // .agent_session.agent_session_path // "")] | @tsv' <<<"$pane_json" 2>/dev/null) || rows=""
+  rows=$(jq -r '.result.panes[]? | select(.agent == "codex" or .agent == "agy" or .agent == "claude" or .agent == "opencode") | [.pane_id, .agent, (.agent_session.kind // ""), (.agent_session.value // ""), (.cwd // .foreground_cwd // ""), (.agent_session.path // .agent_session.agent_session_path // "")] | @tsv' <<<"$pane_json" 2>/dev/null) || rows=""
   while IFS=$'\t' read -r pane_id agent session_kind session_id cwd session_path; do
     [[ -n "$pane_id" ]] || continue
     printf '%s\n' "$pane_id" >>"$current"

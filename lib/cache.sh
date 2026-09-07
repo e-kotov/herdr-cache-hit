@@ -15,6 +15,7 @@ update_pane() {
     codex) record=$(codex_usage "$session_id" 2>/dev/null) ;;
     agy) record=$(agy_usage "$session_id" "$supplied" 2>/dev/null) ;;
     claude) record=$(claude_usage "$session_id" "$cwd" "$supplied" 2>/dev/null) ;;
+    opencode) record=$(opencode_usage "$session_id" "$cwd" "$supplied" 2>/dev/null) ;;
     *) clear_pane "$pane" "$agent"; return 0 ;;
   esac
   if [[ -z "$record" ]]; then
@@ -37,6 +38,10 @@ update_pane() {
     if [[ "$write1h" -gt 0 ]]; then ttl_floor=3600
     elif [[ "$write5m" -gt 0 ]]; then ttl_floor=300
     else ttl_floor=3600
+    fi
+  elif [[ "$agent" == opencode ]]; then
+    if [[ "$provider" == "kiconnect" ]]; then ttl_floor=2900
+    else ttl_floor=$FLOOR_SECONDS
     fi
   fi
   if [[ "$read" -eq 0 && "$write" -eq 0 ]]; then

@@ -7,7 +7,7 @@ export CODEX_SESSIONS_DIR="$TMP/sessions" HERDR_PLUGIN_STATE_DIR="$TMP/state" HO
 export AGY_STATUSLINE_STATE_DIR="$TMP/agy-statusline"
 export HERDR_PLUGIN_CONFIG_DIR="$TMP/config"
 mkdir -p "$CODEX_SESSIONS_DIR/2026/09/06"
-source "$ROOT/lib/core.sh"; source "$ROOT/lib/codex.sh"; source "$ROOT/lib/agy.sh"; source "$ROOT/lib/claude.sh"; source "$ROOT/lib/cache.sh"
+source "$ROOT/lib/core.sh"; source "$ROOT/lib/codex.sh"; source "$ROOT/lib/agy.sh"; source "$ROOT/lib/claude.sh"; source "$ROOT/lib/opencode.sh"; source "$ROOT/lib/cache.sh"
 fail=0
 ok() { printf 'ok - %s\n' "$1"; }
 not_ok() { printf 'not ok - %s\n' "$1"; fail=1; }
@@ -82,13 +82,34 @@ for line in open(sys.argv[1]):
 print(last)
 PY
 ); assert_eq "$py" "$(latest_usage "$roll" "$sid")" 'Bash and Python fixture outputs agree'; fi
+
+if command -v python3 >/dev/null 2>&1; then
+  opencode_db="$TMP/opencode.db"
+  export OPENCODE_DB_PATH="$opencode_db"
+  python3 -c "
+import sqlite3
+con = sqlite3.connect('$opencode_db')
+cur = con.cursor()
+cur.execute('CREATE TABLE session (id text PRIMARY KEY, directory text, time_created integer, time_updated integer, model text, tokens_input integer, tokens_cache_read integer, tokens_cache_write integer)')
+cur.execute('CREATE TABLE message (id text PRIMARY KEY, session_id text, time_created integer, time_updated integer, data text)')
+cur.execute('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ('oc-1', '/same', 1000, 2000, '{\"id\":\"m1\",\"providerID\":\"p1\"}', 10, 20, 5))
+cur.execute('INSERT INTO message VALUES (?, ?, ?, ?, ?)', ('m1', 'oc-1', 1000, 2000, '{\"role\":\"assistant\",\"tokens\":{\"input\":15,\"cache\":{\"read\":45,\"write\":10}},\"modelID\":\"gpt-5\",\"providerID\":\"kiconnect\",\"time\":{\"completed\":1788784328200}}'))
+con.commit()
+con.close()
+"
+  assert_eq "$(opencode_usage oc-1 | cut -f1,2,4-10)" $'opencode\toc-1\t15\t45\t10\t0\t0\tgpt-5\tkiconnect' 'OpenCode message maps tokens, model, and provider'
+  update_pane paneOC opencode oc-1 /same
+  assert_cmd "jq -e '.active.agent == \"opencode\" and .active.session_id == \"oc-1\" and .active.model == \"gpt-5\"' \"$(state_path paneOC)\"" 'OpenCode pane state is recorded'
+fi
+
 fake="$TMP/fake-herdr"; reports="$TMP/watcher-reports"; panes="$TMP/panes.json"
 printf '%s\n' '#!/usr/bin/env bash' 'if [[ "$1 $2" == "pane list" ]]; then cat "$FAKE_PANES"; else printf "%s\n" "$*" >>"$FAKE_REPORTS"; fi' >"$fake"; chmod +x "$fake"
-printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}},{"pane_id":"p2","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"bbb222"}},{"pane_id":"p3","agent":"agy","cwd":"/same","agent_session":{"kind":"id","value":"agy-missing"}}]}}' >"$panes"
+printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}},{"pane_id":"p2","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"bbb222"}},{"pane_id":"p3","agent":"agy","cwd":"/same","agent_session":{"kind":"id","value":"agy-missing"}},{"pane_id":"p4","agent":"opencode","cwd":"/same","agent_session":{"kind":"id","value":"oc-1"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p1.*cache=' \"$reports\"" 'watcher reports native session pane'
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'missing rollout clears second pane'
 assert_cmd "grep -q 'p3.*cache=.*❄cold' \"$reports\"" 'missing AGY usage reports cold'
+assert_cmd "grep -q 'p4.*agent opencode.*cache=' \"$reports\"" 'watcher reports OpenCode session pane'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'closed pane is cleared'
