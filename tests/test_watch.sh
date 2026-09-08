@@ -166,7 +166,7 @@ assert_cmd "[[ \"$last_reported\" =~ ~[0-9]{2}:[0-9]{2} ]]" 'hot cache clock rem
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1560),deadline:($now+240)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'⏰'* ]]" 'expiring cache under 5m displays ⏰ by default'
-assert_cmd "[[ \"$last_reported\" =~ [𝟬-𝟵] ]]" 'expiring cache clock converts to bold digits under threshold (<=5m)'
+assert_cmd "[[ \"$last_reported\" =~ (𝟬|𝟭|𝟮|𝟯|𝟰|𝟱|𝟲|𝟳|𝟴|𝟵) ]]" 'expiring cache clock converts to bold digits under threshold (<=5m)'
 
 # 3. Custom config override: custom hot, expiring symbols, and custom bold threshold
 mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
@@ -177,7 +177,7 @@ assert_cmd "[[ \"$last_reported\" =~ [0-9]{2}:[0-9]{2} ]]" 'clock stays non-bold
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1770),deadline:($now+30)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'⚡'* ]]" 'custom expiring symbol is respected'
-assert_cmd "[[ \"$last_reported\" =~ [𝟬-𝟵] ]]" 'clock becomes bold when under custom bold threshold'
+assert_cmd "[[ \"$last_reported\" =~ (𝟬|𝟭|𝟮|𝟯|𝟰|𝟱|𝟲|𝟳|𝟴|𝟵) ]]" 'clock becomes bold when under custom bold threshold'
 
 # 4. Arbitrary user text/emoji/empty symbols
 printf '%s\n' '{"hot_symbol":"[HOT]","expiring_symbol":"","cold_symbol":"🧊"}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
