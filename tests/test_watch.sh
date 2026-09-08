@@ -155,6 +155,17 @@ jq -n --arg sig "agy|agy-survive|m|p|1000|800|0|0|0" --argjson now "$now" '{acti
 update_pane paneSurvive agy agy-survive
 assert_cmd '[[ "$(jq -r .active.read "$(state_path paneSurvive)")" == "800" && "$last_reported" == *"800"* ]]' 'active pane preserves token counters on transient missing record'
 
+# Active pane survives transient zero-cache record before deadline without wiping to 0% ⇣0
+agy_usage() { printf 'agy\tagy-survive\t%s\t500\t0\t0\t0\t0\tm\tp\t/fake\t0\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
+update_pane paneSurvive agy agy-survive
+assert_cmd '[[ "$(jq -r .active.read "$(state_path paneSurvive)")" == "800" && "$last_reported" == *"800"* && "$last_reported" != *"0% ⇣0"* ]]' 'active pane survives transient zero-cache record without wiping'
+
+# Cold transition retains last known token counters instead of dropping to 0% ⇣0
+now_expired=$((now + 300))
+now=$now_expired update_pane paneSurvive agy agy-survive
+assert_cmd '[[ -z "$last_deadline" && "$last_reported" == *"800"* && "$last_reported" != *"0% ⇣0"* ]]' 'cold transition retains token counters instead of dropping to 0% ⇣0'
+unset -f agy_usage
+
 # 1. Hot state: deadline 10 minutes ahead (> 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1

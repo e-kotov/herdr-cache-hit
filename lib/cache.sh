@@ -61,7 +61,7 @@ update_pane() {
     opencode) record=$(opencode_usage "$session_id" "$cwd" "$supplied" 2>/dev/null) ;;
     *) clear_pane "$pane" "$agent"; return 0 ;;
   esac
-  state=$(state_path "$pane"); load_state "$state" || return 1; now=$(date +%s)
+  state=$(state_path "$pane"); load_state "$state" || return 1; now=${now:-$(date +%s)}
   local prev_hit_at prev_deadline prev_sig prev_active prev_sid
   prev_active=$(jq -r 'if .active != null then "true" else "false" end' "$state" 2>/dev/null || printf "false")
   prev_hit_at=$(jq -r '.active.hit_at // 0' "$state" 2>/dev/null || printf 0)
@@ -79,13 +79,24 @@ update_pane() {
       model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
       provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
     else
-      if [[ "$agent" == agy ]]; then
-        local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "")
-        report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
+      if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" ]]; then
+        input=$(jq -r '.active.input // 0' "$state" 2>/dev/null || printf 0)
+        read=$(jq -r '.active.read // 0' "$state" 2>/dev/null || printf 0)
+        write=$(jq -r '.active.write // 0' "$state" 2>/dev/null || printf 0)
+        write5m=$(jq -r '.active.write5m // 0' "$state" 2>/dev/null || printf 0)
+        write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
+        model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
+        provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
+        jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
       else
-        clear_pane "$pane" "$agent"
+        if [[ "$agent" == agy ]]; then
+          local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "")
+          report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
+        else
+          clear_pane "$pane" "$agent"
+        fi
+        return 0
       fi
-      return 0
     fi
   else
     local rec_agent rec_sid ts write5m write1h source_path source_deadline
@@ -109,14 +120,34 @@ update_pane() {
     fi
 
     if [[ "$read" -eq 0 && "$write" -eq 0 ]]; then
-      # Cold drop: if we were previously active in the same session, record the survival duration before going cold
-      if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 ]]; then
-        local delta=$((record_epoch - prev_hit_at))
-        if (( delta >= 60 && delta <= ttl_max )); then
-          record_observation "$provider" "$model" "$delta" "$ttl_max"
+      if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$now" ]]; then
+        # Preserve active cache state across intermediate zero-token reports
+        input=$(jq -r '.active.input // 0' "$state" 2>/dev/null || printf 0)
+        read=$(jq -r '.active.read // 0' "$state" 2>/dev/null || printf 0)
+        write=$(jq -r '.active.write // 0' "$state" 2>/dev/null || printf 0)
+        write5m=$(jq -r '.active.write5m // 0' "$state" 2>/dev/null || printf 0)
+        write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
+        model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
+        provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
+      else
+        # True cold drop: if we were previously active in the same session, record the survival duration before going cold
+        if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 ]]; then
+          local delta=$((record_epoch - prev_hit_at))
+          if (( delta >= 60 && delta <= ttl_max )); then
+            record_observation "$provider" "$model" "$delta" "$ttl_max"
+          fi
         fi
+        if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" ]]; then
+          input=$(jq -r '.active.input // 0' "$state" 2>/dev/null || printf 0)
+          read=$(jq -r '.active.read // 0' "$state" 2>/dev/null || printf 0)
+          write=$(jq -r '.active.write // 0' "$state" 2>/dev/null || printf 0)
+          write5m=$(jq -r '.active.write5m // 0' "$state" 2>/dev/null || printf 0)
+          write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
+          model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
+          provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
+        fi
+        jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
       fi
-      jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
     else
       # Cache hit or write
       if [[ "$signature" != "$prev_sig" ]]; then
@@ -145,10 +176,12 @@ update_pane() {
   local deadline pct total
   deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
   local show_deadline show_read show_write show_percentage show_model bold_time read_text write_text model_text deadline_text
+  local default_show_pct=true
+  [[ "$agent" == agy || "$agent" == claude ]] && default_show_pct=false
   show_deadline=$(config_bool "$agent" show_deadline true)
   show_read=$(config_bool "$agent" show_read_tokens true)
   show_write=$(config_bool "$agent" show_write_tokens false)
-  show_percentage=$(config_bool "$agent" show_percentage true)
+  show_percentage=$(config_bool "$agent" show_percentage "$default_show_pct")
   show_model=$(config_bool "$agent" show_model false)
   bold_time=$(config_bool "$agent" bold_time true)
   read_text=""; write_text=""

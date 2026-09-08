@@ -82,11 +82,11 @@ agy_statusline_usage() {
     (.observed_at | type) == "number" and (.observed_at | floor) == .observed_at and
     (.observed_at <= $now + 5) and
     ([.input_tokens,.cache_read_tokens,.cache_creation_tokens]|all(type == "number" and . >= 0 and floor == .)) and
-    ([.input_tokens,.cache_read_tokens,.cache_creation_tokens]|any(. > 0)) and
+    ([.cache_read_tokens,.cache_creation_tokens]|any(. > 0)) and
     (.model | type) == "string" and (.provider | type) == "string" and .provider != "" and
     (.deadline | type) == "number" and .deadline == (.deadline | floor) and
     (.deadline == 0 or .deadline >= $now) and
-    ((.deadline > $now) or ($now - .observed_at <= 120)))
+    ((.deadline > $now) or ($now - .observed_at <= 300)))
   ' "$path") || return 1
   observed=$(jq -r .observed_at <<<"$json")
   deadline=$(jq -r .deadline <<<"$json")
