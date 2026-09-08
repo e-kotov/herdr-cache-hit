@@ -1,6 +1,6 @@
 {
   "hot_symbol": "",
-  "expiring_symbol": "⚠️",
+  "expiring_symbol": "⏰",
   "cold_symbol": "",
   "expiring_threshold_seconds": 300,
   "bold_time": true,

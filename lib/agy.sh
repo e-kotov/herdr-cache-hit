@@ -80,8 +80,9 @@ agy_statusline_usage() {
   json=$(jq -e --arg sid "$session_id" --argjson now "$now" '
     select(type == "object" and .session_id == $sid and
     (.observed_at | type) == "number" and (.observed_at | floor) == .observed_at and
-    (.observed_at <= $now) and
+    (.observed_at <= $now + 5) and
     ([.input_tokens,.cache_read_tokens,.cache_creation_tokens]|all(type == "number" and . >= 0 and floor == .)) and
+    ([.input_tokens,.cache_read_tokens,.cache_creation_tokens]|any(. > 0)) and
     (.model | type) == "string" and (.provider | type) == "string" and .provider != "" and
     (.deadline | type) == "number" and .deadline == (.deadline | floor) and
     (.deadline == 0 or .deadline >= $now) and

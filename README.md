@@ -35,7 +35,7 @@ herdr plugin config-dir cache-hit
 
 Copy [`config.example.json`](config.example.json) there as `config.json` and
 edit settings. Top-level settings include `hot_symbol` (default `""`),
-`expiring_symbol` (default `"⚠️"`), `cold_symbol` (default `""`),
+`expiring_symbol` (default `"⏰"`), `cold_symbol` (default `""`),
 `expiring_threshold_seconds` (default `300` / 5 minutes), `bold_time` (default `true`),
 `bold_threshold_seconds` (default `300`, bolding digits when under threshold),
 and `timezone` (e.g. `"Europe/Berlin"`).
@@ -52,8 +52,8 @@ because they are less useful for judging reuse, but can be enabled with
 `show_write_tokens: true`.
 
 The plugin reports both the unified token (`$cache`) and granular tokens:
-- `$cache`: unified string without middle-dot separators (e.g. `~11:41 99% ⇣95.4k` when hot >5m, `⚠️~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring ≤5m, or `99% ⇣95.4k` when cold)
-- `$cache_status`: status symbol + expiry clock (e.g. `~11:41`, `⚠️~𝟭𝟭:𝟰𝟭`, or empty when cold)
+- `$cache`: unified string without middle-dot separators (e.g. `~11:41 99% ⇣95.4k` when hot >5m, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring ≤5m, or `99% ⇣95.4k` when cold)
+- `$cache_status`: status symbol + expiry clock (e.g. `~11:41`, `⏰~𝟭𝟭:𝟰𝟭`, or empty when cold)
 - `$cache_pct`: cache hit percentage (e.g. `99%`)
 - `$cache_tokens`: read (and optional write) token counters (e.g. `⇣95.4k`)
 - `$cache_state`: lifecycle state string (`hot`, `expiring`, or `cold`)

@@ -144,7 +144,7 @@ update_pane() {
 
   local hot_sym expiring_sym cold_sym expiring_secs bold_secs remaining symbol
   hot_sym=$(config_str "$agent" hot_symbol "")
-  expiring_sym=$(config_str "$agent" expiring_symbol "⚠️")
+  expiring_sym=$(config_str "$agent" expiring_symbol "⏰")
   cold_sym=$(config_str "$agent" cold_symbol "")
   expiring_secs=$(config_int "$agent" expiring_threshold_seconds 300)
   bold_secs=$(config_int "$agent" bold_threshold_seconds "$expiring_secs")
