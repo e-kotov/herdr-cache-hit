@@ -1,8 +1,8 @@
 {
-  "hot_symbol": "♨️",
+  "hot_symbol": "",
   "expiring_symbol": "⚠️",
-  "cold_symbol": "❄",
-  "expiring_threshold_seconds": 180,
+  "cold_symbol": "",
+  "expiring_threshold_seconds": 300,
   "timezone": "",
   "agy": {
     "enabled": true,

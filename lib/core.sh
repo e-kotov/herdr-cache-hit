@@ -101,7 +101,7 @@ report_pane() {
   local status_val=${5:-} pct_val=${6:-} tokens_val=${7:-} state_val=${8:-}
   local details_val=${9:-}
   local cmd=("$HERDR_BIN" pane report-metadata "$pane" --source "$SOURCE" --agent "$agent" --token "cache=$token_val" --ttl-ms "$ttl_ms")
-  [[ -n "$status_val" ]] && cmd+=(--token "cache_status=$status_val")
+  cmd+=(--token "cache_status=$status_val")
   [[ -n "$pct_val" ]] && cmd+=(--token "cache_pct=$pct_val")
   [[ -n "$tokens_val" ]] && cmd+=(--token "cache_tokens=$tokens_val")
   [[ -n "$state_val" ]] && cmd+=(--token "cache_state=$state_val")

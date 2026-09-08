@@ -146,15 +146,15 @@ report_pane() { last_reported="$3"; }
 sig="codex|s1|m|p|1000|800|0|0|0"
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
-# 1. Hot state: deadline 10 minutes ahead (> 180s)
+# 1. Hot state: deadline 10 minutes ahead (> 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
-assert_cmd "[[ \"$last_reported\" == *'♨️'* ]]" 'hot cache displays ♨️ by default'
+assert_cmd "[[ \"$last_reported\" == '~'* && \"$last_reported\" != *'♨️'* ]]" 'hot cache displays clean clock without emoji by default'
 
-# 2. Expiring state: deadline 2 minutes ahead (<= 180s)
-jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1680),deadline:($now+120)},observations:[]}' >"$(state_path paneSym)"
+# 2. Expiring state: deadline 4 minutes ahead (<= 300s)
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1560),deadline:($now+240)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
-assert_cmd "[[ \"$last_reported\" == *'⚠️'* ]]" 'expiring cache under 3m displays ⚠️ by default'
+assert_cmd "[[ \"$last_reported\" == *'⚠️'* ]]" 'expiring cache under 5m displays ⚠️ by default'
 
 # 3. Custom config override: custom hot and expiring symbols
 mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"

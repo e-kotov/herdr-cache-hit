@@ -47,26 +47,25 @@ because they are less useful for judging reuse, but can be enabled with
 `show_write_tokens: true`.
 
 The plugin reports both the unified token (`$cache`) and granular tokens:
-- `$cache`: unified string (e.g. `♨️~11:41 99% ⇣95.4k` or `❄ 99% ⇣95.4k`)
-- `$cache_status`: status symbol + expiry clock (e.g. `♨️~11:41`, `⚠️~11:41`, or `❄`)
+- `$cache`: unified string without middle-dot separators (e.g. `~11:41 99% ⇣95.4k`, `⚠️~11:41 99% ⇣95.4k`, or `99% ⇣95.4k`)
+- `$cache_status`: status symbol + expiry clock (e.g. `~11:41`, `⚠️~11:41`, or empty when cold)
 - `$cache_pct`: cache hit percentage (e.g. `99%`)
 - `$cache_tokens`: read (and optional write) token counters (e.g. `⇣95.4k`)
 - `$cache_state`: lifecycle state string (`hot`, `expiring`, or `cold`)
 
 Herdr's sidebar configuration (`[ui.sidebar.agents]` in `config.toml`) controls
-styling and supports conditional rules to change color and weight dynamically:
+styling. Using a single `$cache` token avoids Herdr's default multi-token separator (` · `),
+and conditional rules dynamically highlight the expiring state:
 ```toml
 [ui.sidebar.agents]
 rows = [
   [{ token = "state_icon", bold = true, dim = false }, { token = "agent", fg = "#241835", bold = true, dim = false }],
   [
-    { token = "$cache_status", fg = "#713f78", bold = false, rules = [
-      { starts_with = "⚠️", bold = true, fg = "#d97706" },
-      { starts_with = "♨️", bold = true, fg = "#713f78" },
-      { starts_with = "❄", bold = false, dim = true, fg = "#64748b" }
-    ] },
-    { token = "$cache_pct", fg = "#5a457a", bold = false, dim = true },
-    { token = "$cache_tokens", fg = "#64748b", bold = false, dim = true }
+    { token = "$cache", fg = "#64748b", bold = false, dim = true, rules = [
+      { starts_with = "⚠️", bold = true, dim = false, fg = "#7f1d1d" },
+      { starts_with = "~", bold = false, dim = false, fg = "#713f78" },
+      { starts_with = "♨️", bold = false, dim = false, fg = "#713f78" }
+    ] }
   ],
   [{ token = "workspace", fg = "#4c4669", bold = false, dim = false }, { token = "tab", fg = "#4c4669", bold = false, dim = false }]
 ]

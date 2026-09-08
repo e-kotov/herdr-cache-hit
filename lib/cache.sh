@@ -144,10 +144,10 @@ update_pane() {
   model_text=""; [[ "$show_model" == true && -n "$model" ]] && model_text="$model"
 
   local hot_sym expiring_sym cold_sym expiring_secs remaining symbol
-  hot_sym=$(config_str "$agent" hot_symbol "♨️")
+  hot_sym=$(config_str "$agent" hot_symbol "")
   expiring_sym=$(config_str "$agent" expiring_symbol "⚠️")
-  cold_sym=$(config_str "$agent" cold_symbol "❄")
-  expiring_secs=$(config_int "$agent" expiring_threshold_seconds 180)
+  cold_sym=$(config_str "$agent" cold_symbol "")
+  expiring_secs=$(config_int "$agent" expiring_threshold_seconds 300)
   remaining=$((deadline - now))
   if (( remaining <= expiring_secs )); then
     symbol="$expiring_sym"
@@ -182,8 +182,13 @@ update_pane() {
       status_text="$cold_sym"
       ttl_ms=$DISPLAY_TTL_MS
     fi
+    local parts=()
+    [[ -n "$status_text" ]] && parts+=("$status_text")
+    [[ -n "$pct_text" ]] && parts+=("$pct_text")
+    [[ -n "$tokens_text" ]] && parts+=("$tokens_text")
+    [[ -n "$model_text" ]] && parts+=("$model_text")
+    full_text="${parts[*]:-}"
     local details_text; details_text="${pct_text}${tokens_text:+ $tokens_text}"
-    full_text="${status_text}${pct_text:+ $pct_text}${tokens_text:+ $tokens_text}${model_text:+ $model_text}"
     report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" || true
   else
     total=$((input + read + write)); pct=0; [[ "$total" -gt 0 ]] && pct=$((read*100/total)); [[ "$pct" -gt 100 ]] && pct=100
@@ -204,8 +209,13 @@ update_pane() {
       status_text="$cold_sym"
       ttl_ms=$DISPLAY_TTL_MS
     fi
+    local parts=()
+    [[ -n "$status_text" ]] && parts+=("$status_text")
+    [[ -n "$pct_text" ]] && parts+=("$pct_text")
+    [[ -n "$tokens_text" ]] && parts+=("$tokens_text")
+    [[ -n "$model_text" ]] && parts+=("$model_text")
+    full_text="${parts[*]:-}"
     local details_text; details_text="${pct_text}${tokens_text:+ $tokens_text}"
-    full_text="${status_text}${pct_text:+ $pct_text}${tokens_text:+ $tokens_text}${model_text:+ $model_text}"
     report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" || true
   fi
 }
