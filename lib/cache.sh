@@ -137,25 +137,17 @@ update_pane() {
   show_percentage=$(config_bool "$agent" show_percentage true)
   show_model=$(config_bool "$agent" show_model false)
   bold_time=$(config_bool "$agent" bold_time true)
-  deadline_text=""
-  if [[ "$show_deadline" == true && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then
-    local raw_clock; raw_clock=$(fmt_clock "$deadline")
-    if [[ "$bold_time" == true ]]; then
-      deadline_text="~$(to_bold_digits "$raw_clock")"
-    else
-      deadline_text="~$raw_clock"
-    fi
-  fi
   read_text=""; write_text=""
   [[ "$show_read" == true ]] && read_text="⇣$(fmt_tokens "$read")"
   [[ "$show_write" == true ]] && write_text="⇡$(fmt_tokens "$write")"
   model_text=""; [[ "$show_model" == true && -n "$model" ]] && model_text="$model"
 
-  local hot_sym expiring_sym cold_sym expiring_secs remaining symbol
+  local hot_sym expiring_sym cold_sym expiring_secs bold_secs remaining symbol
   hot_sym=$(config_str "$agent" hot_symbol "")
   expiring_sym=$(config_str "$agent" expiring_symbol "⚠️")
   cold_sym=$(config_str "$agent" cold_symbol "")
   expiring_secs=$(config_int "$agent" expiring_threshold_seconds 300)
+  bold_secs=$(config_int "$agent" bold_threshold_seconds "$expiring_secs")
   remaining=$((deadline - now))
   if (( remaining <= expiring_secs )); then
     symbol="$expiring_sym"
@@ -163,9 +155,26 @@ update_pane() {
     symbol="$hot_sym"
   fi
 
+  deadline_text=""
+  if [[ "$show_deadline" == true && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then
+    local raw_clock; raw_clock=$(fmt_clock "$deadline")
+    if [[ "$bold_time" == true ]] && (( remaining <= bold_secs )); then
+      deadline_text="~$(to_bold_digits "$raw_clock")"
+    else
+      deadline_text="~$raw_clock"
+    fi
+  fi
+
   local pane_wake=0
-  if (( remaining > expiring_secs )); then
-    pane_wake=$((remaining - expiring_secs))
+  local t_high=$expiring_secs t_low=$bold_secs
+  if (( bold_secs > expiring_secs )); then
+    t_high=$bold_secs
+    t_low=$expiring_secs
+  fi
+  if (( remaining > t_high )); then
+    pane_wake=$((remaining - t_high))
+  elif (( remaining > t_low && t_low > 0 )); then
+    pane_wake=$((remaining - t_low))
   elif (( remaining > 0 )); then
     pane_wake=$remaining
   fi

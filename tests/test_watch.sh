@@ -150,20 +150,24 @@ codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(dat
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == '~'* && \"$last_reported\" != *'♨️'* ]]" 'hot cache displays clean clock without emoji by default'
+assert_cmd "[[ \"$last_reported\" =~ ~[0-9]{2}:[0-9]{2} ]]" 'hot cache clock remains non-bold before threshold (>5m)'
 
 # 2. Expiring state: deadline 4 minutes ahead (<= 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1560),deadline:($now+240)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'⚠️'* ]]" 'expiring cache under 5m displays ⚠️ by default'
+assert_cmd "[[ \"$last_reported\" =~ [𝟬-𝟵] ]]" 'expiring cache clock converts to bold digits under threshold (<=5m)'
 
-# 3. Custom config override: custom hot and expiring symbols
+# 3. Custom config override: custom hot, expiring symbols, and custom bold threshold
 mkdir -p "$HERDR_PLUGIN_CONFIG_DIR"
-printf '%s\n' '{"hot_symbol":"🔥","expiring_symbol":"⚡","expiring_threshold_seconds":60}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
+printf '%s\n' '{"hot_symbol":"🔥","expiring_symbol":"⚡","expiring_threshold_seconds":60,"bold_threshold_seconds":60}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'🔥'* ]]" 'custom hot symbol and threshold are respected'
+assert_cmd "[[ \"$last_reported\" =~ [0-9]{2}:[0-9]{2} ]]" 'clock stays non-bold when above custom bold threshold'
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1770),deadline:($now+30)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'⚡'* ]]" 'custom expiring symbol is respected'
+assert_cmd "[[ \"$last_reported\" =~ [𝟬-𝟵] ]]" 'clock becomes bold when under custom bold threshold'
 
 # 4. Arbitrary user text/emoji/empty symbols
 printf '%s\n' '{"hot_symbol":"[HOT]","expiring_symbol":"","cold_symbol":"🧊"}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
