@@ -165,12 +165,23 @@ The active mode is saved in `sort_mode.json` and automatically restored whenever
 
 ## Agent Adapters & Data Sources
 
-| Agent | Extraction Method | Notes |
+| Agent | Extraction Method | Required Helper / Dependencies |
 | :--- | :--- | :--- |
-| **Codex CLI** | Rollout inspection from `~/.codex/sessions` | Fast-path awk/jq parser filters JSONL session rollouts. |
-| **AGY / Antigravity CLI** | Statusline sidecar → Go SQLite helper → Transcript parser | Prefers live statusline payload; falls back to packaged SQLite binary `agy-usage-*` or transcript JSONL. |
-| **Claude Code** | Project transcript analysis (`~/.claude/projects/`) | Tracks 5-minute vs 1-hour cache lifetimes. |
-| **OpenCode** | SQLite database (`~/.local/share/opencode/opencode.db`) | Queries completed message token ledger and cache counters. |
+| **Codex CLI** | Rollout inspection from `~/.codex/sessions` | None (pure `bash` + `jq`) |
+| **Claude Code** | Project transcript analysis (`~/.claude/projects/`) | None (pure `bash` + `jq`) |
+| **OpenCode** | SQLite database (`~/.local/share/opencode/opencode.db`) | `python3` |
+| **AGY / Antigravity CLI** | Multi-tier fallback (Statusline → Go helper → Transcript) | Optional Go helper (`agy-usage-*`) or statusline hook |
+
+### AGY / Antigravity CLI Architecture
+
+Because AGY CLI transcripts do not serialize token metrics to disk, the plugin uses a 3-tier fallback strategy:
+1. **Tier 1 — Live Statusline Sidecar (Fastest, Zero Polling)**: If you use the optional statusline export script (`scripts/agy-statusline-capture.sh` or equivalent in your `statusline.sh`), real-time prompt cache stats are written to `~/.cache/herdr-cache-plugin/agy-statusline/<sid>.json`. This gives instantaneous HUD updates with zero SQLite parsing.
+2. **Tier 2 — Go SQLite Helper (`agy-usage-*`)**: If the statusline sidecar is absent, the plugin invokes the compiled helper to extract token metrics directly from AGY's internal SQLite database (`~/.gemini/antigravity-cli/conversations/<sid>.db`). Precompiled binaries are provided for macOS and Linux.
+3. **Tier 3 — Transcript Fallback**: If neither is available, it attempts to read `transcript.jsonl` (used by AGY Web IDE).
+
+> [!NOTE]
+> **If you don't use AGY CLI:**
+> You do **not** need the Go helper or any statusline scripts. Codex, Claude Code, and OpenCode work completely out of the box with standard system tools (`bash`, `jq`, and optionally `python3`).
 
 ---
 

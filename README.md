@@ -19,6 +19,17 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](https://github.com/herdrdev/h
 
 ---
 
+## Prerequisites & Compatibility
+
+- **Operating Systems**: **macOS** and **Linux** (native). On **Windows**, use **WSL2** (Windows Subsystem for Linux). Native Windows (PowerShell / Command Prompt) is not supported as Herdr and its plugin hooks run in a POSIX shell environment.
+- **Dependencies**:
+  - `jq` (**Required**): Core JSON parser for state and token metadata (`brew install jq` or `sudo apt install jq`).
+  - `bash` 4.0+ (**Required**): Standard on Linux; macOS ships bash 3.2 which works, but Homebrew bash is recommended.
+  - `python3` (**Optional**): Only needed if monitoring **OpenCode** (queries its SQLite database) or using `herdr-cache-view toggle` for view sorting. Not needed for Codex or Claude Code.
+  - `Go` (**Optional**): Only needed if building the AGY SQLite helper from source instead of downloading the precompiled release binary.
+
+---
+
 ## Quick Start
 
 ### 1. Install Plugin
