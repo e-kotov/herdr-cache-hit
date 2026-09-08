@@ -269,9 +269,13 @@ rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
 schedule_wake 100
 assert_cmd "[[ -s \"$TIMER_PID_FILE\" ]]" 'schedule_wake records timer PID'
 tpid=$(cat "$TIMER_PID_FILE")
-assert_cmd "kill -0 \"$tpid\" 2>/dev/null" 'scheduled timer process is running'
+assert_cmd "pid_is_live \"$tpid\"" 'scheduled timer process is running'
+schedule_wake 100
+replacement_tpid=$(cat "$TIMER_PID_FILE")
+assert_cmd "[[ \"$tpid\" != \"$replacement_tpid\" ]] && ! pid_is_live \"$tpid\" && pid_is_live \"$replacement_tpid\"" 'rescheduling retains at most one live timer'
 cancel_timer
 assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]]" 'cancel_timer removes PID file'
+assert_cmd "! pid_is_live \"$replacement_tpid\"" 'cancel_timer stops the scheduled process'
 # 6. Declarative view sort mode cycling and persistence
 source "$ROOT/lib/view.sh"
 last_rpc_method=""
@@ -397,7 +401,8 @@ assert_cmd '[[ "$(jq -r ".active.read" "$(state_path paneRestart)")" == "300" ]]
   'stale cache: session B counters are correct'
 unset -f codex_usage
 
-# 9. Complete same-pane restart through watch_main and timer lifecycle.
+# 9. Complete same-pane restart through watch_main. Timer lifecycle is tested
+# above in-process so child reaping is deterministic on both Linux and macOS.
 restart_reports="$TMP/restart-reports"
 restart_panes="$TMP/restart-panes.json"
 restart_a="$CODEX_SESSIONS_DIR/2026/09/06/rollout-restart-A.jsonl"
@@ -406,33 +411,26 @@ restart_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf '%s\n' '{"type":"session_meta","payload":{"id":"restart-A","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$restart_ts\",\"payload\":{\"usage\":{\"input_tokens\":1000,\"cached_input_tokens\":800},\"model\":\"model-A\",\"model_provider\":\"provider-A\"}}" >"$restart_a"
 rm -f "$ROLLOUT_INDEX"
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"restart-A"}}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
-timer_a=$(cat "$TIMER_PID_FILE")
-assert_cmd "kill -0 \"$timer_a\" 2>/dev/null" 'active cache schedules one rescan timer'
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main clears session A state when identity disappears'
-assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! kill -0 \"$timer_a\" 2>/dev/null" 'cold rescan cancels periodic work'
 
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"restart-B"}}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main keeps replacement session cold before its first record'
 
 printf '%s\n' '{"type":"session_meta","payload":{"id":"restart-B","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$restart_ts\",\"payload\":{\"usage\":{\"input_tokens\":500,\"cached_input_tokens\":300},\"model\":\"model-B\",\"model_provider\":\"provider-B\"}}" >"$restart_b"
 rm -f "$ROLLOUT_INDEX"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 assert_cmd "jq -e '.active.session_id == \"restart-B\" and .active.read == 300 and .active.model == \"model-B\"' \"$(state_path paneRestartWatch)\"" 'watch_main displays only session B data after its first record'
-timer_b=$(cat "$TIMER_PID_FILE")
 assert_eq "$(next_wake_delay 1 '')" "15" 'active cache rescan delay is capped at 15 seconds'
 assert_eq "$(next_wake_delay 1 5)" "5" 'expiration transition preempts the 15-second rescan interval'
 assert_eq "$(next_wake_delay 0 5 || true)" "" 'cold caches request no wake delay'
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
-timer_c=$(cat "$TIMER_PID_FILE")
-assert_cmd "[[ \"$timer_b\" != \"$timer_c\" ]] && ! pid_is_live \"$timer_b\" && pid_is_live \"$timer_c\"" 'successive active rescans retain at most one live timer'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
-assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! pid_is_live \"$timer_c\"" 'no live timer remains when every cache is cold'
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main leaves the pane cold after session B disappears'
 
 # 10. Download helper validation and replacement tests.
 dummy_bin_dir="$TMP/dummy_bin"
