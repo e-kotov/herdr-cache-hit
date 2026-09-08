@@ -133,18 +133,24 @@ assert_cmd "grep -q 'p1.*cache_pct=' \"$reports\"" 'watcher reports granular cac
 assert_cmd "grep -q 'p1.*cache_tokens=' \"$reports\"" 'watcher reports granular cache_tokens'
 assert_cmd "grep -q 'p1.*cache_state=' \"$reports\"" 'watcher reports granular cache_state'
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'missing rollout clears second pane'
-assert_cmd "grep -q 'p3.*cache=.*❄' \"$reports\"" 'missing AGY usage reports cold'
+assert_cmd "grep -q 'p3.*cache_state=cold' \"$reports\"" 'missing AGY usage reports cold'
 assert_cmd "grep -q 'p4.*agent opencode.*cache=' \"$reports\"" 'watcher reports OpenCode session pane'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'closed pane is cleared'
 
 # Configurable symbols and expiring threshold tests
+init_state
 now=$(date +%s)
 last_reported=""
 report_pane() { last_reported="$3"; }
 sig="codex|s1|m|p|1000|800|0|0|0"
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
+
+# Active pane survives transient missing record until deadline
+jq -n --arg sig "agy|agy-survive|m|p|1000|800|0|0|0" --argjson now "$now" '{active:{agent:"agy",session_id:"agy-survive",model:"m",provider:"p",signature:$sig,hit_at:($now-60),deadline:($now+240),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneSurvive)"
+update_pane paneSurvive agy agy-survive
+assert_cmd '[[ "$(jq -r .active.read "$(state_path paneSurvive)")" == "800" && "$last_reported" == *"800"* ]]' 'active pane preserves token counters on transient missing record'
 
 # 1. Hot state: deadline 10 minutes ahead (> 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"

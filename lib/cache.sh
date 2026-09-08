@@ -61,36 +61,7 @@ update_pane() {
     opencode) record=$(opencode_usage "$session_id" "$cwd" "$supplied" 2>/dev/null) ;;
     *) clear_pane "$pane" "$agent"; return 0 ;;
   esac
-  if [[ -z "$record" ]]; then
-    if [[ "$agent" == agy ]]; then
-      local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "❄")
-      report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
-    else
-      clear_pane "$pane" "$agent"
-    fi
-    return 0
-  fi
-  local rec_agent rec_sid ts input read write write5m write1h model provider source_path source_deadline
-  IFS=$'\t' read -r rec_agent rec_sid ts input read write write5m write1h model provider source_path source_deadline <<<"$record"
-  : "$source_path"
-  [[ "$rec_agent" == "$agent" && "$rec_sid" == "$session_id" ]] || { clear_pane "$pane" "$agent"; return 0; }
-  record_epoch=$(parse_timestamp "$ts") || { clear_pane "$pane" "$agent"; return 0; }
   state=$(state_path "$pane"); load_state "$state" || return 1; now=$(date +%s)
-  local signature; signature="$agent|$session_id|$model|$provider|$input|$read|$write|$write5m|$write1h"
-  ttl_floor=$FLOOR_SECONDS
-  local ttl_max
-  ttl_max=$(config_int "$agent" ttl_ceiling "$CEILING_SECONDS")
-  if [[ "$agent" == claude ]]; then
-    if [[ "$write1h" -gt 0 ]]; then ttl_floor=3600; ttl_max=3600
-    elif [[ "$write5m" -gt 0 ]]; then ttl_floor=300; ttl_max=300
-    else ttl_floor=3600; ttl_max=3600
-    fi
-  elif [[ "$agent" == opencode ]]; then
-    if [[ "$provider" == "kiconnect" ]]; then ttl_floor=2900; ttl_max=3600
-    else ttl_floor=$FLOOR_SECONDS; ttl_max=3600
-    fi
-  fi
-
   local prev_hit_at prev_deadline prev_sig prev_active prev_sid
   prev_active=$(jq -r 'if .active != null then "true" else "false" end' "$state" 2>/dev/null || printf "false")
   prev_hit_at=$(jq -r '.active.hit_at // 0' "$state" 2>/dev/null || printf 0)
@@ -98,35 +69,78 @@ update_pane() {
   prev_sig=$(jq -r '.active.signature // ""' "$state" 2>/dev/null || printf "")
   prev_sid=$(jq -r '.active.session_id // ""' "$state" 2>/dev/null || printf "")
 
-  if [[ "$read" -eq 0 && "$write" -eq 0 ]]; then
-    # Cold drop: if we were previously active in the same session, record the survival duration before going cold
-    if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 ]]; then
-      local delta=$((record_epoch - prev_hit_at))
-      if (( delta >= 60 && delta <= ttl_max )); then
-        record_observation "$provider" "$model" "$delta" "$ttl_max"
+  if [[ -z "$record" ]]; then
+    if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$now" ]]; then
+      input=$(jq -r '.active.input // 0' "$state" 2>/dev/null || printf 0)
+      read=$(jq -r '.active.read // 0' "$state" 2>/dev/null || printf 0)
+      write=$(jq -r '.active.write // 0' "$state" 2>/dev/null || printf 0)
+      write5m=$(jq -r '.active.write5m // 0' "$state" 2>/dev/null || printf 0)
+      write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
+      model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
+      provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
+    else
+      if [[ "$agent" == agy ]]; then
+        local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "")
+        report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
+      else
+        clear_pane "$pane" "$agent"
+      fi
+      return 0
+    fi
+  else
+    local rec_agent rec_sid ts write5m write1h source_path source_deadline
+    IFS=$'\t' read -r rec_agent rec_sid ts input read write write5m write1h model provider source_path source_deadline <<<"$record"
+    : "$source_path"
+    [[ "$rec_agent" == "$agent" && "$rec_sid" == "$session_id" ]] || { clear_pane "$pane" "$agent"; return 0; }
+    record_epoch=$(parse_timestamp "$ts") || { clear_pane "$pane" "$agent"; return 0; }
+    local signature; signature="$agent|$session_id|$model|$provider|$input|$read|$write|$write5m|$write1h"
+    ttl_floor=$FLOOR_SECONDS
+    local ttl_max
+    ttl_max=$(config_int "$agent" ttl_ceiling "$CEILING_SECONDS")
+    if [[ "$agent" == claude ]]; then
+      if [[ "$write1h" -gt 0 ]]; then ttl_floor=3600; ttl_max=3600
+      elif [[ "$write5m" -gt 0 ]]; then ttl_floor=300; ttl_max=300
+      else ttl_floor=3600; ttl_max=3600
+      fi
+    elif [[ "$agent" == opencode ]]; then
+      if [[ "$provider" == "kiconnect" ]]; then ttl_floor=2900; ttl_max=3600
+      else ttl_floor=$FLOOR_SECONDS; ttl_max=3600
       fi
     fi
-    jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
-  else
-    # Cache hit or write
-    if [[ "$signature" != "$prev_sig" ]]; then
-      # Surprise hit: prompt arrived after the expected deadline but still hit the cache in the same session!
-      if [[ "$read" -gt 0 && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$prev_hit_at" ]]; then
+
+    if [[ "$read" -eq 0 && "$write" -eq 0 ]]; then
+      # Cold drop: if we were previously active in the same session, record the survival duration before going cold
+      if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 ]]; then
         local delta=$((record_epoch - prev_hit_at))
-        local prev_ttl=$((prev_deadline - prev_hit_at))
-        if (( delta > prev_ttl && delta >= 60 && delta <= ttl_max )); then
+        if (( delta >= 60 && delta <= ttl_max )); then
           record_observation "$provider" "$model" "$delta" "$ttl_max"
         fi
       fi
-      local ttl; ttl=$(get_learned_ttl "$provider" "$model" "$ttl_floor" "$ttl_max")
-      local new_deadline=$((record_epoch + ttl))
-      jq --arg sig "$signature" --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" --argjson at "$record_epoch" --argjson deadline "$new_deadline" '
-        .active = {agent:$agent, session_id:$sid, model:$model, provider:$provider, signature:$sig, hit_at:$at, deadline:$deadline}
-      ' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+      jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+    else
+      # Cache hit or write
+      if [[ "$signature" != "$prev_sig" ]]; then
+        # Surprise hit: prompt arrived after the expected deadline but still hit the cache in the same session!
+        if [[ "$read" -gt 0 && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$prev_hit_at" ]]; then
+          local delta=$((record_epoch - prev_hit_at))
+          local prev_ttl=$((prev_deadline - prev_hit_at))
+          if (( delta > prev_ttl && delta >= 60 && delta <= ttl_max )); then
+            record_observation "$provider" "$model" "$delta" "$ttl_max"
+          fi
+        fi
+        local ttl; ttl=$(get_learned_ttl "$provider" "$model" "$ttl_floor" "$ttl_max")
+        local new_deadline=$((record_epoch + ttl))
+        jq --arg sig "$signature" --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" \
+          --argjson at "$record_epoch" --argjson deadline "$new_deadline" \
+          --argjson input "$input" --argjson read "$read" --argjson write "$write" \
+          --argjson write5m "$write5m" --argjson write1h "$write1h" '
+          .active = {agent:$agent, session_id:$sid, model:$model, provider:$provider, signature:$sig, hit_at:$at, deadline:$deadline, input:$input, read:$read, write:$write, write5m:$write5m, write1h:$write1h}
+        ' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+      fi
     fi
-  fi
-  if [[ "$agent" == agy && "$source_deadline" =~ ^[0-9]+$ && "$source_deadline" -gt 0 ]]; then
-    jq --arg agent "$agent" --arg sid "$session_id" --argjson deadline "$source_deadline" 'if .active != null and .active.agent == $agent and .active.session_id == $sid then .active.deadline=$deadline else . end' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+    if [[ "$agent" == agy && "$source_deadline" =~ ^[0-9]+$ && "$source_deadline" -gt 0 ]]; then
+      jq --arg agent "$agent" --arg sid "$session_id" --argjson deadline "$source_deadline" 'if .active != null and .active.agent == $agent and .active.session_id == $sid then .active.deadline=$deadline else . end' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+    fi
   fi
   local deadline pct total
   deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
