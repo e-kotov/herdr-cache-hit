@@ -2,6 +2,7 @@
 *.md
 !README.md
 !USERGUIDE.md
+!docs/*.md
 
 # Helper binaries built from source or downloaded from releases
 /bin/agy-usage-*

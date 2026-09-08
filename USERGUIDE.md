@@ -183,6 +183,8 @@ Because AGY CLI transcripts do not serialize token metrics to disk, the plugin u
 > **If you don't use AGY CLI:**
 > You do **not** need the Go helper or any statusline scripts. Codex, Claude Code, and OpenCode work completely out of the box with standard system tools (`bash`, `jq`, and optionally `python3`).
 
+For detailed instructions and copy-paste statusline snippets, see the **[Antigravity CLI (AGY) Integration Guide](docs/AGY_INTEGRATION.md)**.
+
 ---
 
 ## Troubleshooting & Diagnostics

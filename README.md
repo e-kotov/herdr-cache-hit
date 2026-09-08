@@ -46,7 +46,7 @@ herdr plugin link .
 herdr plugin list
 ```
 
-*(Optional)* Download the precompiled AGY SQLite helper binary for your platform, or compile it if Go is installed:
+*(Optional — only for AGY users)*: If you monitor Antigravity CLI, download the precompiled SQLite helper binary (or see the [AGY Integration Guide](docs/AGY_INTEGRATION.md) for real-time statusline options):
 
 ```bash
 # Download precompiled binary from latest release:
