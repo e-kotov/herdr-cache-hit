@@ -6,6 +6,7 @@ readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/sta
 readonly CONFIG_DIR="${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/config/cache-hit}"
 readonly CONFIG_FILE="$CONFIG_DIR/config.json"
 readonly FLOOR_SECONDS=1800
+readonly CEILING_SECONDS=3600
 readonly DISPLAY_TTL_MS=86400000
 readonly SOURCE="herdr-plugin.cache-hit"
 readonly LOCK_DIR="$STATE_DIR/watcher.lock"
@@ -56,6 +57,14 @@ cleanup() {
   [[ -f "$LOCK_DIR/pid" && "$(cat "$LOCK_DIR/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$LOCK_DIR"
 }
 fmt_tokens() { awk -v n="${1:-0}" 'BEGIN { if (n >= 1000000) printf "%.1fM", n / 1000000; else if (n >= 1000) printf "%.1fk", n / 1000; else printf "%d", n }'; }
-fmt_clock() { date -r "$1" +%H:%M 2>/dev/null || date -d "@$1" +%H:%M 2>/dev/null; }
+fmt_clock() {
+  local tz
+  tz=$(config_str "" timezone "${HERDR_PLUGIN_TIMEZONE:-${TZ:-}}")
+  if [[ -n "$tz" ]]; then
+    TZ="$tz" date -d "@$1" +%H:%M 2>/dev/null || TZ="$tz" date -r "$1" +%H:%M 2>/dev/null
+  else
+    date -d "@$1" +%H:%M 2>/dev/null || date -r "$1" +%H:%M 2>/dev/null
+  fi
+}
 report_pane() { "$HERDR_BIN" pane report-metadata "$1" --source "$SOURCE" --agent "$2" --token "cache=$3" --ttl-ms "${4:-15000}" >/dev/null 2>&1; }
 clear_pane() { "$HERDR_BIN" pane report-metadata "$1" --source "$SOURCE" --agent "${2:-codex}" --clear-token cache --ttl-ms 15000 >/dev/null 2>&1 || true; }

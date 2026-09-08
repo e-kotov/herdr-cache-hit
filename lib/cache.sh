@@ -14,11 +14,12 @@ model_key() {
   printf '%s:%s' "$provider" "$model"
 }
 get_learned_ttl() {
-  local provider=$1 model=$2 floor=$3 key ttl
+  local provider=$1 model=$2 floor=$3 ceiling=${4:-$CEILING_SECONDS} key ttl
   key=$(model_key "$provider" "$model")
   [[ -s "$OBSERVATIONS_FILE" ]] || { printf '%s\n' "$floor"; return 0; }
-  ttl=$(jq -r --arg key "$key" --argjson floor "$floor" '
-    (.[$key] // []) as $obs |
+  ttl=$(jq -r --arg key "$key" --argjson floor "$floor" --argjson ceiling "$ceiling" '
+    (.[$key] // []) as $raw |
+    ($raw | map(select(type == "number" and . >= 60 and . <= $ceiling))) as $obs |
     if ($obs | length) >= 2 then
       ($obs | sort) as $s |
       (if ($s | length) >= 5 then
@@ -26,7 +27,7 @@ get_learned_ttl() {
         $s[$trim : (($s | length) - $trim)]
        else $s end) as $inliers |
       (($inliers | add) / ($inliers | length) | floor) as $avg |
-      [$floor, $avg] | max
+      [$floor, $avg] | max | [., $ceiling] | min
     else
       $floor
     end' "$OBSERVATIONS_FILE" 2>/dev/null) || ttl="$floor"
@@ -34,8 +35,8 @@ get_learned_ttl() {
   printf '%s\n' "$ttl"
 }
 record_observation() {
-  local provider=$1 model=$2 seconds=$3 key tmp
-  [[ "$seconds" =~ ^[0-9]+$ && "$seconds" -ge 60 ]] || return 0
+  local provider=$1 model=$2 seconds=$3 max_sec=${4:-$CEILING_SECONDS} key tmp
+  [[ "$seconds" =~ ^[0-9]+$ && "$seconds" -ge 60 && "$seconds" -le "$max_sec" ]] || return 0
   key=$(model_key "$provider" "$model")
   tmp=$(mktemp "$STATE_DIR/obs.XXXXXX") || return 1
   if [[ -s "$OBSERVATIONS_FILE" ]] && jq -e 'type == "object"' "$OBSERVATIONS_FILE" >/dev/null 2>&1; then
@@ -77,44 +78,47 @@ update_pane() {
   state=$(state_path "$pane"); load_state "$state" || return 1; now=$(date +%s)
   local signature; signature="$agent|$session_id|$model|$provider|$input|$read|$write|$write5m|$write1h"
   ttl_floor=$FLOOR_SECONDS
+  local ttl_max
+  ttl_max=$(config_int "$agent" ttl_ceiling "$CEILING_SECONDS")
   if [[ "$agent" == claude ]]; then
-    if [[ "$write1h" -gt 0 ]]; then ttl_floor=3600
-    elif [[ "$write5m" -gt 0 ]]; then ttl_floor=300
-    else ttl_floor=3600
+    if [[ "$write1h" -gt 0 ]]; then ttl_floor=3600; ttl_max=3600
+    elif [[ "$write5m" -gt 0 ]]; then ttl_floor=300; ttl_max=300
+    else ttl_floor=3600; ttl_max=3600
     fi
   elif [[ "$agent" == opencode ]]; then
-    if [[ "$provider" == "kiconnect" ]]; then ttl_floor=2900
-    else ttl_floor=$FLOOR_SECONDS
+    if [[ "$provider" == "kiconnect" ]]; then ttl_floor=2900; ttl_max=3600
+    else ttl_floor=$FLOOR_SECONDS; ttl_max=3600
     fi
   fi
 
-  local prev_hit_at prev_deadline prev_sig prev_active
+  local prev_hit_at prev_deadline prev_sig prev_active prev_sid
   prev_active=$(jq -r 'if .active != null then "true" else "false" end' "$state" 2>/dev/null || printf "false")
   prev_hit_at=$(jq -r '.active.hit_at // 0' "$state" 2>/dev/null || printf 0)
   prev_deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
   prev_sig=$(jq -r '.active.signature // ""' "$state" 2>/dev/null || printf "")
+  prev_sid=$(jq -r '.active.session_id // ""' "$state" 2>/dev/null || printf "")
 
   if [[ "$read" -eq 0 && "$write" -eq 0 ]]; then
-    # Cold drop: if we were previously active, record the survival duration before going cold
-    if [[ "$prev_active" == "true" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 ]]; then
+    # Cold drop: if we were previously active in the same session, record the survival duration before going cold
+    if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 ]]; then
       local delta=$((record_epoch - prev_hit_at))
-      if (( delta >= 60 )); then
-        record_observation "$provider" "$model" "$delta"
+      if (( delta >= 60 && delta <= ttl_max )); then
+        record_observation "$provider" "$model" "$delta" "$ttl_max"
       fi
     fi
     jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
   else
     # Cache hit or write
     if [[ "$signature" != "$prev_sig" ]]; then
-      # Surprise hit: prompt arrived after the expected deadline but still hit the cache!
-      if [[ "$read" -gt 0 && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$prev_hit_at" ]]; then
+      # Surprise hit: prompt arrived after the expected deadline but still hit the cache in the same session!
+      if [[ "$read" -gt 0 && "$prev_sid" == "$session_id" && "$prev_hit_at" =~ ^[0-9]+$ && "$prev_hit_at" -gt 0 && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$prev_hit_at" ]]; then
         local delta=$((record_epoch - prev_hit_at))
         local prev_ttl=$((prev_deadline - prev_hit_at))
-        if (( delta > prev_ttl && delta >= 60 )); then
-          record_observation "$provider" "$model" "$delta"
+        if (( delta > prev_ttl && delta >= 60 && delta <= ttl_max )); then
+          record_observation "$provider" "$model" "$delta" "$ttl_max"
         fi
       fi
-      local ttl; ttl=$(get_learned_ttl "$provider" "$model" "$ttl_floor")
+      local ttl; ttl=$(get_learned_ttl "$provider" "$model" "$ttl_floor" "$ttl_max")
       local new_deadline=$((record_epoch + ttl))
       jq --arg sig "$signature" --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" --argjson at "$record_epoch" --argjson deadline "$new_deadline" '
         .active = {agent:$agent, session_id:$sid, model:$model, provider:$provider, signature:$sig, hit_at:$at, deadline:$deadline}

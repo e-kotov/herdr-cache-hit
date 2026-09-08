@@ -73,8 +73,10 @@ expired snapshots older than two minutes are ignored. Its source is maintained
 in chezmoi at `dot_gemini/antigravity-cli/executable_statusline.sh`.
 `HERDR_PLUGIN_STATE_DIR` overrides state, lock, and temporary-file storage.
 `jq` is required at runtime. The cache deadline is an adaptive estimate with a
-30-minute floor, not an eviction guarantee; observations are isolated by
-agent, session, model, and provider and survive Herdr restarts.
+30-minute floor and 1-hour ceiling (configurable per agent via `ttl_ceiling`),
+not an eviction guarantee; observations are isolated by agent, session, model,
+and provider and survive Herdr restarts. Timezone display can be configured via
+`"timezone"` in `config.json` (e.g. `"Europe/Berlin"`) or `HERDR_PLUGIN_TIMEZONE`.
 
 Current identity: `cache-hit`, name `Cache Hit`, version `0.1.0`,
 macOS and Linux, minimum Herdr `0.7.0`.
@@ -82,10 +84,11 @@ macOS and Linux, minimum Herdr `0.7.0`.
 ## Verification
 
 ```bash
-bash -n herdr-cache-plugin/watch.sh
-shellcheck herdr-cache-plugin/watch.sh herdr-cache-plugin/lib/*.sh
-bash herdr-cache-plugin/tests/test_watch.sh
-bash herdr-cache-plugin/tests/benchmark.sh
+cd herdr-cache-plugin
+bash -n watch.sh
+shellcheck watch.sh lib/*.sh
+bash tests/test_watch.sh
+bash tests/benchmark.sh
 ```
 
 The AGY helper is built for macOS arm64 and Linux amd64 with

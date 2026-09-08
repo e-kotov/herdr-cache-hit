@@ -31,11 +31,15 @@ rollout_for_session() {
   fi
 
   # Fast path: check flat and recent date-partitioned paths first (avoids full tree scans on network filesystems)
+  local d_now d_now_utc m_now
+  d_now=$(date +%Y/%m/%d)
+  d_now_utc=$(date -u +%Y/%m/%d)
+  m_now=$(date +%Y/%m)
   for candidate in \
     "$SESSIONS_DIR"/*"$session_id"*.jsonl \
-    "$SESSIONS_DIR"/$(date +%Y/%m/%d)/*"$session_id"*.jsonl \
-    "$SESSIONS_DIR"/$(date -u +%Y/%m/%d)/*"$session_id"*.jsonl \
-    "$SESSIONS_DIR"/$(date +%Y/%m)/*/*"$session_id"*.jsonl; do
+    "$SESSIONS_DIR/$d_now"/*"$session_id"*.jsonl \
+    "$SESSIONS_DIR/$d_now_utc"/*"$session_id"*.jsonl \
+    "$SESSIONS_DIR/$m_now"/*/*"$session_id"*.jsonl; do
     if [[ -f "$candidate" ]]; then
       meta=$(head -n 100 "$candidate" 2>/dev/null | jq -R -s --arg id "$session_id" '[splits("\n") | fromjson? | select(type == "object" and .type == "session_meta" and .payload.id == $id)] | length' 2>/dev/null) || continue
       if [[ "$meta" == 1 ]]; then

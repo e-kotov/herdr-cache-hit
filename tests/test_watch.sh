@@ -166,4 +166,29 @@ update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'[HOT]'* ]]" 'arbitrary text or emoji symbols are allowed'
 rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
 
+# TTL ceiling guardrail tests
+# 1. Observations exceeding ceiling (e.g. 44005s from multi-hour idle) are rejected
+record_observation pCeil mCeil 44005 3600
+assert_cmd "! jq -e 'has(\"pCeil:mCeil\")' \"$OBSERVATIONS_FILE\"" 'observations exceeding ceiling are rejected by record_observation'
+
+# 2. Corrupted or legacy observations exceeding ceiling in observations.json are filtered by get_learned_ttl
+jq '.["pCeil:mCeil"] = [44005, 3000, 3200]' "$OBSERVATIONS_FILE" >"$OBSERVATIONS_FILE.tmp" && mv "$OBSERVATIONS_FILE.tmp" "$OBSERVATIONS_FILE"
+learned_clamped=$(get_learned_ttl pCeil mCeil 1800 3600)
+assert_eq "$learned_clamped" 3100 'get_learned_ttl filters out legacy observations exceeding ceiling'
+
+# 3. Session isolation: surprise hit does NOT record across different session IDs in the same pane
+roll_s2="$CODEX_SESSIONS_DIR/2026/09/06/rollout-s2.jsonl"
+printf '%s\n' '{"type":"session_meta","payload":{"id":"s2"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T15:00:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":800},"model":"mIso","model_provider":"pIso"}}' >"$roll_s2"
+jq -n --arg sig "codex|s1|mIso|pIso|1000|800|0|0|0" '{active:{agent:"codex",session_id:"s1",model:"mIso",provider:"pIso",signature:$sig,hit_at:1788690000,deadline:1788691800},observations:[]}' >"$(state_path paneIso)"
+update_pane paneIso codex s2
+assert_cmd "! jq -e 'has(\"pIso:mIso\")' \"$OBSERVATIONS_FILE\"" 'different session ID does not record surprise hit across sessions'
+
+# 4. Timezone override in fmt_clock
+clock_epoch=1788858000 # 2026-09-08 09:00:00 UTC
+HERDR_PLUGIN_TIMEZONE="UTC" assert_eq "$(HERDR_PLUGIN_TIMEZONE="UTC" fmt_clock "$clock_epoch")" "09:00" 'fmt_clock formats in UTC with HERDR_PLUGIN_TIMEZONE'
+HERDR_PLUGIN_TIMEZONE="Europe/Berlin" assert_eq "$(HERDR_PLUGIN_TIMEZONE="Europe/Berlin" fmt_clock "$clock_epoch")" "11:00" 'fmt_clock formats in CEST (+2) with HERDR_PLUGIN_TIMEZONE'
+printf '%s\n' '{"timezone":"UTC"}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
+assert_eq "$(fmt_clock "$clock_epoch")" "09:00" 'fmt_clock respects timezone from config.json'
+rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
+
 exit "$fail"

@@ -3,6 +3,7 @@
   "expiring_symbol": "⚠️",
   "cold_symbol": "❄cold",
   "expiring_threshold_seconds": 180,
+  "timezone": "",
   "agy": {
     "enabled": true,
     "show_deadline": true,
