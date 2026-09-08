@@ -1,8 +1,12 @@
-# Markdown is documentation-only in this repository; keep the plugin README.
+# Documentation markdown files to keep
 *.md
 !README.md
+!USERGUIDE.md
 
-# Local/runtime artifacts.
+# Helper binaries built from source or downloaded from releases
+/bin/agy-usage-*
+
+# Local/runtime artifacts
 .DS_Store
 *.log
 __pycache__/

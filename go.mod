@@ -1,4 +1,4 @@
-module github.com/ek/harness-plugins/herdr-cache-plugin
+module github.com/e-kotov/herdr-cache-hit
 
 go 1.24.0
 

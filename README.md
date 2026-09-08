@@ -1,73 +1,62 @@
-# Herdr Agent Cache HUD
+# Herdr Agent Cache Hit & Expiration Plugin (`cache-hit`)
 
-`cache-hit` is a macOS and Linux Herdr plugin that reports per-conversation cache usage
-for Codex, AGY (`agy`/Antigravity CLI), Claude, and OpenCode as the `cache` pane token.
-It reads local rollout/transcript metadata; prompt contents are never
-transmitted. AGY prefers the live statusline sidecar written by the
-chezmoi-managed `~/.gemini/antigravity-cli/statusline.sh`, then the packaged
-native Go decoder for its read-only SQLite conversation database, and finally
-transcript parsing. The sidecar is keyed by AGY conversation ID, so multiple
-AGY panes can run in parallel without sharing cache state.
+[![CI](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml/badge.svg)](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Install and remove
+A high-efficiency plugin for [Herdr](https://github.com/herdrdev/herdr) that provides real-time prompt-cache HUD metrics, dynamic expiration countdowns, and declarative cache-deadline agent sorting.
+
+Supports **Codex CLI**, **AGY** ([Antigravity CLI](https://github.com/herdrdev/herdr)), **Claude Code**, and **OpenCode**.
+
+---
+
+## Features
+
+- **Live Prompt-Cache HUD**: Real-time cache hit ratios, read/cached token metrics, and estimated expiration countdowns directly in Herdr's sidebar.
+- **Urgency Transitions**: Automatic visual transitions from healthy state (`~15:44`) to urgent alarm warning (`⏰~𝟭𝟱:𝟰𝟰`) using mathematical Unicode bold digits when nearing expiration (configurable threshold, default ≤5m).
+- **Declarative Agent Sorting**: Sort active agent panes by prompt-cache expiration deadline (`cache_deadline asc`), keeping expiring agents at the top. Toggle effortlessly with a single keybinding (`prefix+s`).
+- **Zero Background Polling**: Executes strictly on Herdr event hooks (`pane.agent_detected`, `pane.focused`, etc.) with a single lightweight wake timer scheduled at the exact expiration deadline.
+- **Privacy-First**: Inspects only local session metadata and token ledger files. Prompts, message contents, and tool payloads are never read or transmitted.
+
+---
+
+## Quick Start
+
+### 1. Install Plugin
+
+Clone the repository and link it to Herdr:
 
 ```bash
-cd /Users/ek/home/sync/personal/code_repository/pet_projects/harness-plugins
-bash -n herdr-cache-plugin/watch.sh
-shellcheck herdr-cache-plugin/watch.sh herdr-cache-plugin/lib/*.sh
+git clone https://github.com/e-kotov/herdr-cache-hit.git
+cd herdr-cache-hit
+
+# Link to Herdr
 herdr plugin unlink cache-hit 2>/dev/null || true
-herdr plugin link "$PWD/herdr-cache-plugin"
+herdr plugin link .
 herdr plugin list
 ```
 
-Remove it with `herdr plugin unlink cache-hit`. Herdr invokes the
-lock-protected one-shot scanner on startup, handoff, and supported pane
-lifecycle/status events; no background process is left running.
-
-## Configuration
-
-Configuration is optional and is read on every scan. Get the stable per-plugin
-directory with:
+*(Optional)* Download the precompiled AGY SQLite helper binary for your platform, or compile it if Go is installed:
 
 ```bash
-herdr plugin config-dir cache-hit
+# Download precompiled binary from latest release:
+./scripts/download-helpers.sh
+
+# OR compile locally:
+./scripts/build-agy-usage.sh
 ```
 
-Copy [`config.example.json`](config.example.json) there as `config.json` and
-edit settings. Top-level settings include `hot_symbol` (default `""`),
-`expiring_symbol` (default `"⏰"`), `cold_symbol` (default `""`),
-`expiring_threshold_seconds` (default `300` / 5 minutes), `bold_time` (default `true`),
-`bold_threshold_seconds` (default `300`, bolding digits when under threshold),
-and `timezone` (e.g. `"Europe/Berlin"`).
+### 2. Configure Herdr Sidebar
 
-Each agent section (`agy`, `claude`, `codex`, `opencode`) supports `enabled`,
-`show_deadline`, `show_read_tokens`, `show_write_tokens`, `show_percentage`,
-and `show_model`. Invalid or missing settings use the defaults in the example.
-Set `enabled` to `false` to clear that agent's cache token without disabling the
-other agents. Changes apply on the next Herdr scan; reinstallation is not required.
+Add dynamic styling rules to `~/.config/herdr/config.toml` so Herdr colors expiring caches in bold warning tones:
 
-By default all agents use the same compact display: estimated expiry, cache
-percentage, and cached/read tokens. Cache-written tokens are hidden by default
-because they are less useful for judging reuse, but can be enabled with
-`show_write_tokens: true`.
-
-The plugin reports both the unified token (`$cache`) and granular tokens:
-- `$cache`: unified string without middle-dot separators (e.g. `~11:41 99% ⇣95.4k` when hot >5m, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring ≤5m, or `99% ⇣95.4k` when cold)
-- `$cache_status`: status symbol + expiry clock (e.g. `~11:41`, `⏰~𝟭𝟭:𝟰𝟭`, or empty when cold)
-- `$cache_pct`: cache hit percentage (e.g. `99%`)
-- `$cache_tokens`: read (and optional write) token counters (e.g. `⇣95.4k`)
-- `$cache_state`: lifecycle state string (`hot`, `expiring`, or `cold`)
-
-Herdr's sidebar configuration (`[ui.sidebar.agents]` in `config.toml`) controls
-styling. Using a single `$cache` token avoids Herdr's default multi-token separator (` · `),
-and conditional rules dynamically highlight the expiring state:
 ```toml
 [ui.sidebar.agents]
 rows = [
   [{ token = "state_icon", bold = true, dim = false }, { token = "agent", fg = "#241835", bold = true, dim = false }],
   [
     { token = "$cache", fg = "#64748b", bold = false, dim = true, rules = [
-      { starts_with = "⚠️", bold = true, dim = false, fg = "#7f1d1d" },
+      { starts_with = "⏰", bold = true, dim = false, fg = "#7f1d1d" },
+      { starts_with = "⚠️", bold = true, dim = false, fg = "#b45309" },
       { starts_with = "~", bold = false, dim = false, fg = "#713f78" },
       { starts_with = "♨️", bold = false, dim = false, fg = "#713f78" }
     ] }
@@ -76,47 +65,60 @@ rows = [
 ]
 ```
 
-## Data and compatibility
+### 3. Add 2-Way Expiration Sorting Keybinding
 
-The watcher reads only pane identity, native session identity, cwd (for Claude's
-fallback path), and an optional native transcript path from `herdr pane list`.
-It accepts only `codex`, `agy`, and `claude` panes with a non-empty native ID.
-Malformed or incomplete JSONL is ignored, and embedded session IDs are checked
-when present. Prompt contents are never transmitted.
+Enable toggling between expiration sorting and native sorting via `prefix+s` in `~/.config/herdr/config.toml`:
 
-`CODEX_SESSIONS_DIR` overrides the Codex session directory. `HODEX_SESSIONS_DIR`
-is retained as a compatibility fallback, followed by `~/.codex/sessions`.
-AGY checks both `~/.gemini/antigravity/brain/<id>/.system_generated/logs/transcript.jsonl`
-and the native CLI path `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`;
-Claude defaults to `$CLAUDE_CONFIG_DIR/projects/<cwd-encoded>/<id>.jsonl`, or
-`~/.claude/projects/...`.
-OpenCode reads the completed message token ledger and cache counters from
-`$OPENCODE_DB_PATH` or `~/.local/share/opencode/opencode.db`.
-The AGY statusline writes validated live snapshots to
-`~/.cache/herdr-codex-cache/agy-statusline/<conversation-id>.json`; a hot
-snapshot remains trusted until the deadline reported by AGY, while cold or
-expired snapshots older than two minutes are ignored. Its source is maintained
-in chezmoi at `dot_gemini/antigravity-cli/executable_statusline.sh`.
-`HERDR_PLUGIN_STATE_DIR` overrides state, lock, and temporary-file storage.
-`jq` is required at runtime. The cache deadline is an adaptive estimate with a
-30-minute floor and 1-hour ceiling (configurable per agent via `ttl_ceiling`),
-not an eviction guarantee; observations are isolated by agent, session, model,
-and provider and survive Herdr restarts. Timezone display can be configured via
-`"timezone"` in `config.json` (e.g. `"Europe/Berlin"`) or `HERDR_PLUGIN_TIMEZONE`.
+```toml
+[[keys.command]]
+key = "s"
+command = ["bash", "-c", "herdr-cache-view toggle"]
 
-Current identity: `cache-hit`, name `Cache Hit`, version `0.1.0`,
-macOS and Linux, minimum Herdr `0.7.0`.
-
-## Verification
-
-```bash
-cd herdr-cache-plugin
-bash -n watch.sh
-shellcheck watch.sh lib/*.sh
-bash tests/test_watch.sh
-bash tests/benchmark.sh
+[keys]
+settings = "S" # Remap settings to prefix+S (shift+s)
 ```
 
-The AGY helper is built for macOS arm64 and Linux amd64 with
-`scripts/build-agy-usage.sh`; Go and CGO are build-time only and are not
-required at runtime.
+Reload Herdr configuration:
+```bash
+herdr server reload-config
+```
+
+---
+
+## Token Reference
+
+The plugin emits the following pane tokens:
+
+- **`$cache`**: Unified token string without middle dots (e.g. `~11:41 99% ⇣95.4k` when healthy, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring, or `99% ⇣95.4k` when cold).
+- **`$cache_status`**: Expiration clock with optional symbol prefix (e.g. `~11:41` or `⏰~𝟭𝟭:𝟰𝟭`).
+- **`$cache_pct`**: Cache hit percentage (`99%`).
+- **`$cache_tokens`**: Read and write token counters (`⇣95.4k`).
+- **`$cache_state`**: State identifier (`hot`, `expiring`, or `cold`).
+- **`cache_deadline`**: Epoch timestamp used for declarative sorting.
+
+---
+
+## Configuration & Documentation
+
+For detailed information on configuring symbols, thresholds, timezones, per-agent overrides, custom declarative views, and troubleshooting, see the **[User Guide & Configuration Manual](USERGUIDE.md)**.
+
+A ready-to-use template is available in [`config.example.json`](config.example.json).
+
+---
+
+## Verification & Testing
+
+Run the test suite and static analysis:
+
+```bash
+bash -n watch.sh
+shellcheck watch.sh lib/*.sh bin/herdr-cache-view scripts/*.sh
+bash tests/test_watch.sh
+go test -v ./cmd/agy-usage
+```
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Egor Kotov

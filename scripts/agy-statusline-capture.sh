@@ -2,7 +2,7 @@
 set -u
 
 capture_dir="${AGY_STATUS_CAPTURE_DIR:-${TMPDIR:-/tmp}/agy-status-capture}"
-original="/Users/ek/.gemini/antigravity-cli/statusline.sh"
+original="${AGY_STATUSLINE_SCRIPT:-$HOME/.gemini/antigravity-cli/statusline.sh}"
 mkdir -p "$capture_dir" 2>/dev/null || true
 
 payload=$(cat)
