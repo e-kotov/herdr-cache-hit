@@ -182,8 +182,9 @@ update_pane() {
       status_text="$cold_sym"
       ttl_ms=$DISPLAY_TTL_MS
     fi
+    local details_text; details_text="${pct_text}${tokens_text:+ $tokens_text}"
     full_text="${status_text}${pct_text:+ $pct_text}${tokens_text:+ $tokens_text}${model_text:+ $model_text}"
-    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" || true
+    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" || true
   else
     total=$((input + read + write)); pct=0; [[ "$total" -gt 0 ]] && pct=$((read*100/total)); [[ "$pct" -gt 100 ]] && pct=100
     pct_text=""; [[ "$show_percentage" == true ]] && pct_text="${pct}%"
@@ -203,7 +204,8 @@ update_pane() {
       status_text="$cold_sym"
       ttl_ms=$DISPLAY_TTL_MS
     fi
+    local details_text; details_text="${pct_text}${tokens_text:+ $tokens_text}"
     full_text="${status_text}${pct_text:+ $pct_text}${tokens_text:+ $tokens_text}${model_text:+ $model_text}"
-    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" || true
+    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" || true
   fi
 }
