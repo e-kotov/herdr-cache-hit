@@ -26,9 +26,19 @@ target="$BIN_DIR/$name"
 
 echo "Downloading $name from $url..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$url" -o "$target"
+  if ! curl -fsSL "$url" -o "$target"; then
+    echo "Error: Failed to download $name from $url" >&2
+    echo "Please check https://github.com/${REPO}/releases or build from source using './scripts/build-agy-usage.sh'." >&2
+    rm -f "$target"
+    exit 1
+  fi
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "$target" "$url"
+  if ! wget -qO "$target" "$url"; then
+    echo "Error: Failed to download $name from $url" >&2
+    echo "Please check https://github.com/${REPO}/releases or build from source using './scripts/build-agy-usage.sh'." >&2
+    rm -f "$target"
+    exit 1
+  fi
 else
   echo "Neither curl nor wget found in PATH." >&2
   exit 1

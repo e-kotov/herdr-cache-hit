@@ -8,6 +8,7 @@ readonly SORT_STATE_FILE="$STATE_DIR/sort_mode.json"
 
 herdr_view_rpc() {
   local method=$1 params_json=$2
+  command -v python3 >/dev/null 2>&1 || return 0
   python3 -c '
 import socket, json, sys, os
 
