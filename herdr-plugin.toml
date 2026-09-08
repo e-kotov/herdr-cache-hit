@@ -8,6 +8,10 @@ platforms = ["macos", "linux"]
 [[startup]]
 command = ["bash", "watch.sh"]
 
+[[startup]]
+command = ["bash", "bin/herdr-cache-view", "restore"]
+
+
 [[events]]
 on = "pane.agent_detected"
 command = ["bash", "watch.sh"]

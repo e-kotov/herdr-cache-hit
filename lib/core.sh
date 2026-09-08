@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
+[[ -n "${_HERDR_CACHE_CORE_LOADED:-}" ]] && return 0
+_HERDR_CACHE_CORE_LOADED=1
 readonly HERDR_BIN="${HERDR_BIN_PATH:-herdr}"
 readonly SESSIONS_DIR="${CODEX_SESSIONS_DIR:-${HODEX_SESSIONS_DIR:-$HOME/.codex/sessions}}"
 readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/cache-hit}"
@@ -113,17 +115,24 @@ to_bold_digits() {
 report_pane() {
   local pane=$1 agent=$2 token_val=$3 ttl_ms=${4:-15000}
   local status_val=${5:-} pct_val=${6:-} tokens_val=${7:-} state_val=${8:-}
-  local details_val=${9:-}
+  local details_val=${9:-} deadline_val=${10:-}
   local cmd=("$HERDR_BIN" pane report-metadata "$pane" --source "$SOURCE" --agent "$agent" --token "cache=$token_val" --ttl-ms "$ttl_ms")
   cmd+=(--token "cache_status=$status_val")
   [[ -n "$pct_val" ]] && cmd+=(--token "cache_pct=$pct_val")
   [[ -n "$tokens_val" ]] && cmd+=(--token "cache_tokens=$tokens_val")
   [[ -n "$state_val" ]] && cmd+=(--token "cache_state=$state_val")
   [[ -n "$details_val" ]] && cmd+=(--token "cache_details=$details_val")
+  if [[ -n "$deadline_val" && "$deadline_val" =~ ^[0-9]+$ && "$deadline_val" -gt 0 ]]; then
+    cmd+=(--token "cache_deadline=$deadline_val")
+  else
+    cmd+=(--clear-token "cache_deadline")
+  fi
   "${cmd[@]}" >/dev/null 2>&1 || true
 }
 clear_pane() {
   "$HERDR_BIN" pane report-metadata "$1" --source "$SOURCE" --agent "${2:-codex}" \
     --clear-token cache --clear-token cache_status --clear-token cache_pct \
-    --clear-token cache_tokens --clear-token cache_state --clear-token cache_details --ttl-ms 15000 >/dev/null 2>&1 || true
+    --clear-token cache_tokens --clear-token cache_state --clear-token cache_details \
+    --clear-token cache_deadline --ttl-ms 15000 >/dev/null 2>&1 || true
 }
+

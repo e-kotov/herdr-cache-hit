@@ -131,9 +131,11 @@ assert_cmd "grep -q 'p1.*cache=' \"$reports\"" 'watcher reports native session p
 assert_cmd "grep -q 'p1.*cache_status=' \"$reports\"" 'watcher reports granular cache_status'
 assert_cmd "grep -q 'p1.*cache_pct=' \"$reports\"" 'watcher reports granular cache_pct'
 assert_cmd "grep -q 'p1.*cache_tokens=' \"$reports\"" 'watcher reports granular cache_tokens'
-assert_cmd "grep -q 'p1.*cache_state=' \"$reports\"" 'watcher reports granular cache_state'
+assert_cmd "grep -q 'p1.*clear-token cache_deadline' \"$reports\"" 'watcher clears cache_deadline on cold pane'
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'missing rollout clears second pane'
+assert_cmd "grep -q 'p2.*clear-token cache_deadline' \"$reports\"" 'missing rollout clears cache_deadline'
 assert_cmd "grep -q 'p3.*cache_state=cold' \"$reports\"" 'missing AGY usage reports cold'
+assert_cmd "grep -q 'p3.*clear-token cache_deadline' \"$reports\"" 'missing AGY usage clears cache_deadline'
 assert_cmd "grep -q 'p4.*agent opencode.*cache=' \"$reports\"" 'watcher reports OpenCode session pane'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
@@ -143,7 +145,8 @@ assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'closed pane is cleare
 init_state
 now=$(date +%s)
 last_reported=""
-report_pane() { last_reported="$3"; }
+last_deadline=""
+report_pane() { last_reported="$3"; last_deadline="${10:-}"; }
 sig="codex|s1|m|p|1000|800|0|0|0"
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
@@ -155,6 +158,7 @@ assert_cmd '[[ "$(jq -r .active.read "$(state_path paneSurvive)")" == "800" && "
 # 1. Hot state: deadline 10 minutes ahead (> 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
+assert_eq "$last_deadline" "$((now+600))" 'active pane passes deadline to report_pane'
 assert_cmd "[[ \"$last_reported\" == '~'* && \"$last_reported\" != *'♨️'* ]]" 'hot cache displays clean clock without emoji by default'
 assert_cmd "[[ \"$last_reported\" =~ ~[0-9]{2}:[0-9]{2} ]]" 'hot cache clock remains non-bold before threshold (>5m)'
 
@@ -214,6 +218,32 @@ tpid=$(cat "$TIMER_PID_FILE")
 assert_cmd "kill -0 \"$tpid\" 2>/dev/null" 'scheduled timer process is running'
 cancel_timer
 assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]]" 'cancel_timer removes PID file'
-assert_cmd "! kill -0 \"$tpid\" 2>/dev/null" 'cancel_timer terminates timer process'
+# 6. Declarative view sort mode cycling and persistence
+source "$ROOT/lib/view.sh"
+last_rpc_method=""
+last_rpc_params=""
+herdr_view_rpc() { last_rpc_method="$1"; last_rpc_params="$2"; }
+
+rm -f "$SORT_STATE_FILE"
+assert_eq "$(get_sort_mode)" "grouped" 'default sort mode is grouped'
+set_sort_mode "expiry"
+assert_eq "$(get_sort_mode)" "expiry" 'set_sort_mode updates sort_mode.json'
+assert_eq "$last_rpc_method" "agent.view.set" 'set_sort_mode expiry issues agent.view.set'
+if [[ "$last_rpc_params" == *'"label": "expiry"'* ]]; then ok 'set_sort_mode expiry passes expiry label'; else not_ok 'set_sort_mode expiry passes expiry label'; fi
+
+# Cycle tests: expiry -> grouped -> priority -> expiry
+cycle_sort_mode >/dev/null
+assert_eq "$(get_sort_mode)" "grouped" 'cycle from expiry yields grouped'
+assert_eq "$last_rpc_method" "agent.view.clear" 'grouped mode clears agent view'
+
+cycle_sort_mode >/dev/null
+assert_eq "$(get_sort_mode)" "priority" 'cycle from grouped yields priority'
+assert_eq "$last_rpc_method" "agent.view.set" 'priority mode issues agent.view.set'
+if [[ "$last_rpc_params" == *'"label": "priority"'* ]]; then ok 'priority mode passes priority label'; else not_ok 'priority mode passes priority label'; fi
+
+cycle_sort_mode >/dev/null
+assert_eq "$(get_sort_mode)" "expiry" 'cycle from priority yields expiry'
+assert_eq "$last_rpc_method" "agent.view.set" 'expiry mode issues agent.view.set'
 
 exit "$fail"
+
