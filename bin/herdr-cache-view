@@ -7,15 +7,15 @@ PLUGIN_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/view.sh
 . "$PLUGIN_ROOT/lib/view.sh"
 
-action="${1:-cycle}"
+action="${1:-toggle}"
 
 case "$action" in
-  cycle)
-    cycle_sort_mode
+  toggle|cycle)
+    toggle_sort_mode
     ;;
   set)
     target="${2:-}"
-    [[ -n "$target" ]] || { echo "Usage: herdr-cache-view set <expiry|priority|grouped>" >&2; exit 1; }
+    [[ -n "$target" ]] || { echo "Usage: herdr-cache-view set <expiry|native>" >&2; exit 1; }
     set_sort_mode "$target"
     ;;
   get)
@@ -25,7 +25,7 @@ case "$action" in
     restore_sort_mode
     ;;
   *)
-    echo "Usage: herdr-cache-view [cycle|set <mode>|get|restore]" >&2
+    echo "Usage: herdr-cache-view [toggle|set <expiry|native>|get|restore]" >&2
     exit 1
     ;;
 esac

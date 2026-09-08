@@ -41,12 +41,12 @@ except Exception as e:
 get_sort_mode() {
   if [[ -s "$SORT_STATE_FILE" ]]; then
     local mode
-    mode=$(jq -r '.mode // "grouped"' "$SORT_STATE_FILE" 2>/dev/null) || mode="grouped"
+    mode=$(jq -r '.mode // "native"' "$SORT_STATE_FILE" 2>/dev/null) || mode="native"
     case "$mode" in
-      expiry|priority|grouped) printf '%s\n' "$mode"; return 0 ;;
+      expiry) printf 'expiry\n'; return 0 ;;
     esac
   fi
-  printf 'grouped\n'
+  printf 'native\n'
 }
 
 save_sort_mode() {
@@ -70,17 +70,7 @@ apply_sort_mode() {
         ]
       }'
       ;;
-    priority)
-      herdr_view_rpc "agent.view.set" '{
-        "source": "plugin:cache-hit",
-        "label": "priority",
-        "sort": [
-          {"field": "attention", "order": "desc"},
-          {"field": "state_change_seq", "order": "desc"}
-        ]
-      }'
-      ;;
-    grouped|*)
+    *)
       herdr_view_rpc "agent.view.clear" '{
         "source": "plugin:cache-hit"
       }'
@@ -91,23 +81,25 @@ apply_sort_mode() {
 set_sort_mode() {
   local mode=$1
   case "$mode" in
-    expiry|priority|grouped) ;;
-    *) echo "Invalid sort mode: $mode (must be expiry, priority, or grouped)" >&2; return 1 ;;
+    expiry) apply_sort_mode "expiry"; save_sort_mode "expiry" ;;
+    *)      apply_sort_mode "native"; save_sort_mode "native" ;;
   esac
-  apply_sort_mode "$mode"
-  save_sort_mode "$mode"
+}
+
+toggle_sort_mode() {
+  local current next
+  current=$(get_sort_mode)
+  if [[ "$current" == "expiry" ]]; then
+    next="native"
+  else
+    next="expiry"
+  fi
+  set_sort_mode "$next"
+  printf '%s\n' "$next"
 }
 
 cycle_sort_mode() {
-  local current next
-  current=$(get_sort_mode)
-  case "$current" in
-    grouped)  next="priority" ;;
-    priority) next="expiry" ;;
-    expiry|*) next="grouped" ;;
-  esac
-  set_sort_mode "$next"
-  printf '%s\n' "$next"
+  toggle_sort_mode
 }
 
 restore_sort_mode() {

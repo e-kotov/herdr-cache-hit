@@ -225,25 +225,21 @@ last_rpc_params=""
 herdr_view_rpc() { last_rpc_method="$1"; last_rpc_params="$2"; }
 
 rm -f "$SORT_STATE_FILE"
-assert_eq "$(get_sort_mode)" "grouped" 'default sort mode is grouped'
+assert_eq "$(get_sort_mode)" "native" 'default sort mode is native'
 set_sort_mode "expiry"
 assert_eq "$(get_sort_mode)" "expiry" 'set_sort_mode updates sort_mode.json'
 assert_eq "$last_rpc_method" "agent.view.set" 'set_sort_mode expiry issues agent.view.set'
 if [[ "$last_rpc_params" == *'"label": "expiry"'* ]]; then ok 'set_sort_mode expiry passes expiry label'; else not_ok 'set_sort_mode expiry passes expiry label'; fi
 
-# Cycle tests: expiry -> grouped -> priority -> expiry
-cycle_sort_mode >/dev/null
-assert_eq "$(get_sort_mode)" "grouped" 'cycle from expiry yields grouped'
-assert_eq "$last_rpc_method" "agent.view.clear" 'grouped mode clears agent view'
+# Toggle tests: expiry <-> native
+toggle_sort_mode >/dev/null
+assert_eq "$(get_sort_mode)" "native" 'toggle from expiry yields native'
+assert_eq "$last_rpc_method" "agent.view.clear" 'native mode clears agent view'
 
-cycle_sort_mode >/dev/null
-assert_eq "$(get_sort_mode)" "priority" 'cycle from grouped yields priority'
-assert_eq "$last_rpc_method" "agent.view.set" 'priority mode issues agent.view.set'
-if [[ "$last_rpc_params" == *'"label": "priority"'* ]]; then ok 'priority mode passes priority label'; else not_ok 'priority mode passes priority label'; fi
-
-cycle_sort_mode >/dev/null
-assert_eq "$(get_sort_mode)" "expiry" 'cycle from priority yields expiry'
+toggle_sort_mode >/dev/null
+assert_eq "$(get_sort_mode)" "expiry" 'toggle from native yields expiry'
 assert_eq "$last_rpc_method" "agent.view.set" 'expiry mode issues agent.view.set'
+if [[ "$last_rpc_params" == *'"label": "expiry"'* ]]; then ok 'expiry mode passes expiry label'; else not_ok 'expiry mode passes expiry label'; fi
 
 exit "$fail"
 
