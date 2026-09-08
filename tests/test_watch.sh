@@ -14,6 +14,11 @@ ok() { printf 'ok - %s\n' "$1"; }
 not_ok() { printf 'not ok - %s\n' "$1"; fail=1; }
 assert_eq() { if [[ "$1" == "$2" ]]; then ok "$3"; else printf 'not ok - %s\n' "$3"; fail=1; fi; }
 assert_cmd() { if eval "$1" >/dev/null 2>&1; then ok "$2"; else not_ok "$2"; fi; }
+pid_is_live() {
+  local stat
+  stat=$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ') || return 1
+  [[ -n "$stat" && "$stat" != Z* ]]
+}
 sid=aaa111; roll="$CODEX_SESSIONS_DIR/2026/09/06/rollout-$sid.jsonl"
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111","cwd":"/same"}}' 'not json' '{"type":"token_usage_record","timestamp":"2026-09-06T10:00:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":500},"model":"m1","model_provider":"p1"}}' '{"type":"incomplete"}' >"$roll"
 printf '%s\n' '{"type":"session_meta","payload":{"id":"wrong"}}' >"$TMP/rollout-bbb222.jsonl"
@@ -424,10 +429,10 @@ assert_eq "$(next_wake_delay 1 5)" "5" 'expiration transition preempts the 15-se
 assert_eq "$(next_wake_delay 0 5 || true)" "" 'cold caches request no wake delay'
 env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 timer_c=$(cat "$TIMER_PID_FILE")
-assert_cmd "[[ \"$timer_b\" != \"$timer_c\" ]] && ! kill -0 \"$timer_b\" 2>/dev/null && kill -0 \"$timer_c\" 2>/dev/null" 'successive active rescans retain at most one timer'
+assert_cmd "[[ \"$timer_b\" != \"$timer_c\" ]] && ! pid_is_live \"$timer_b\" && pid_is_live \"$timer_c\"" 'successive active rescans retain at most one live timer'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$restart_panes"
 env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
-assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! kill -0 \"$timer_c\" 2>/dev/null" 'no timer remains when every cache is cold'
+assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! pid_is_live \"$timer_c\"" 'no live timer remains when every cache is cold'
 
 # 10. Download helper validation and replacement tests.
 dummy_bin_dir="$TMP/dummy_bin"
