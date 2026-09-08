@@ -155,6 +155,13 @@ update_pane() {
     symbol="$hot_sym"
   fi
 
+  local pane_wake=0
+  if (( remaining > expiring_secs )); then
+    pane_wake=$((remaining - expiring_secs))
+  elif (( remaining > 0 )); then
+    pane_wake=$remaining
+  fi
+
   local state_name status_text tokens_text full_text ttl_ms
   if [[ "$agent" == codex ]]; then
     pct=0; [[ "$input" -gt 0 ]] && pct=$((read*100/input)); [[ "$pct" -gt 100 ]] && pct=100
@@ -164,7 +171,12 @@ update_pane() {
     if [[ "$read" -gt 0 && -n "$deadline_text" ]]; then
       if (( remaining <= expiring_secs )); then state_name="expiring"; else state_name="hot"; fi
       status_text="${symbol}${deadline_text}"
-      ttl_ms=$(( (deadline-now)*1000 ))
+      ttl_ms=$DISPLAY_TTL_MS
+      if (( pane_wake > 0 )); then
+        if [[ -z "${EARLIEST_WAKE:-}" ]] || (( pane_wake < EARLIEST_WAKE )); then
+          EARLIEST_WAKE=$pane_wake
+        fi
+      fi
     else
       state_name="cold"
       status_text="$cold_sym"
@@ -180,7 +192,12 @@ update_pane() {
     if [[ "$total" -gt 0 && -n "$deadline_text" ]]; then
       if (( remaining <= expiring_secs )); then state_name="expiring"; else state_name="hot"; fi
       status_text="${symbol}${deadline_text}"
-      ttl_ms=$(( (deadline-now)*1000 ))
+      ttl_ms=$DISPLAY_TTL_MS
+      if (( pane_wake > 0 )); then
+        if [[ -z "${EARLIEST_WAKE:-}" ]] || (( pane_wake < EARLIEST_WAKE )); then
+          EARLIEST_WAKE=$pane_wake
+        fi
+      fi
     else
       state_name="cold"
       status_text="$cold_sym"

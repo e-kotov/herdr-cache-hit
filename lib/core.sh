@@ -56,6 +56,36 @@ cleanup() {
   local f; for f in "$STATE_DIR"/*.tmp "$STATE_DIR"/seen.*; do [[ -e "$f" ]] && rm -f "$f"; done
   [[ -f "$LOCK_DIR/pid" && "$(cat "$LOCK_DIR/pid" 2>/dev/null)" == "$$" ]] && rm -rf "$LOCK_DIR"
 }
+readonly TIMER_PID_FILE="$STATE_DIR/timer.pid"
+cancel_timer() {
+  if [[ -f "$TIMER_PID_FILE" ]]; then
+    local old_pid
+    old_pid=$(cat "$TIMER_PID_FILE" 2>/dev/null || true)
+    if [[ "$old_pid" =~ ^[0-9]+$ ]]; then
+      pkill -P "$old_pid" 2>/dev/null || true
+      kill "$old_pid" 2>/dev/null || true
+      wait "$old_pid" 2>/dev/null || true
+    fi
+    rm -f "$TIMER_PID_FILE"
+  fi
+}
+schedule_wake() {
+  local delay=${1:-}
+  cancel_timer
+  if [[ -n "$delay" && "$delay" =~ ^[0-9]+$ && "$delay" -gt 0 ]]; then
+    local script="${PLUGIN_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/watch.sh"
+    [[ -f "$script" ]] || return 0
+    init_state || return 0
+    (
+      cd /
+      sleep "$delay"
+      bash "$script"
+    ) >/dev/null 2>&1 &
+    local new_pid=$!
+    printf '%s\n' "$new_pid" >"$TIMER_PID_FILE"
+    disown "$new_pid" 2>/dev/null || true
+  fi
+}
 fmt_tokens() { awk -v n="${1:-0}" 'BEGIN { if (n >= 1000000) printf "%.1fM", n / 1000000; else if (n >= 1000) printf "%.1fk", n / 1000; else printf "%d", n }'; }
 fmt_clock() {
   local tz

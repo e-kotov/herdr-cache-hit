@@ -2,10 +2,11 @@
 set -u
 ROOT="$(cd -- "$(dirname -- "$0")/.." && pwd)"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/cache-hit-test.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
+trap 'cancel_timer; rm -rf "$TMP"' EXIT
 export CODEX_SESSIONS_DIR="$TMP/sessions" HERDR_PLUGIN_STATE_DIR="$TMP/state" HODEX_SESSIONS_DIR="$TMP/unused"
 export AGY_STATUSLINE_STATE_DIR="$TMP/agy-statusline"
 export HERDR_PLUGIN_CONFIG_DIR="$TMP/config"
+export HERDR_NO_TIMER=1
 mkdir -p "$CODEX_SESSIONS_DIR/2026/09/06"
 source "$ROOT/lib/core.sh"; source "$ROOT/lib/codex.sh"; source "$ROOT/lib/agy.sh"; source "$ROOT/lib/claude.sh"; source "$ROOT/lib/opencode.sh"; source "$ROOT/lib/cache.sh"
 fail=0
@@ -122,6 +123,7 @@ con.close()
 fi
 
 fake="$TMP/fake-herdr"; reports="$TMP/watcher-reports"; panes="$TMP/panes.json"
+# shellcheck disable=SC2016
 printf '%s\n' '#!/usr/bin/env bash' 'if [[ "$1 $2" == "pane list" ]]; then cat "$FAKE_PANES"; else printf "%s\n" "$*" >>"$FAKE_REPORTS"; fi' >"$fake"; chmod +x "$fake"
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}},{"pane_id":"p2","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"bbb222"}},{"pane_id":"p3","agent":"agy","cwd":"/same","agent_session":{"kind":"id","value":"agy-missing"}},{"pane_id":"p4","agent":"opencode","cwd":"/same","agent_session":{"kind":"id","value":"oc-1"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
@@ -193,6 +195,13 @@ HERDR_PLUGIN_TIMEZONE="UTC" assert_eq "$(HERDR_PLUGIN_TIMEZONE="UTC" fmt_clock "
 HERDR_PLUGIN_TIMEZONE="Europe/Berlin" assert_eq "$(HERDR_PLUGIN_TIMEZONE="Europe/Berlin" fmt_clock "$clock_epoch")" "11:00" 'fmt_clock formats in CEST (+2) with HERDR_PLUGIN_TIMEZONE'
 printf '%s\n' '{"timezone":"UTC"}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
 assert_eq "$(fmt_clock "$clock_epoch")" "09:00" 'fmt_clock respects timezone from config.json'
-rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
+# 5. Timer scheduling and cancellation
+schedule_wake 100
+assert_cmd "[[ -s \"$TIMER_PID_FILE\" ]]" 'schedule_wake records timer PID'
+tpid=$(cat "$TIMER_PID_FILE")
+assert_cmd "kill -0 \"$tpid\" 2>/dev/null" 'scheduled timer process is running'
+cancel_timer
+assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]]" 'cancel_timer removes PID file'
+assert_cmd "! kill -0 \"$tpid\" 2>/dev/null" 'cancel_timer terminates timer process'
 
 exit "$fail"
