@@ -63,8 +63,8 @@ update_pane() {
   esac
   if [[ -z "$record" ]]; then
     if [[ "$agent" == agy ]]; then
-      local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "❄cold")
-      report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" || true
+      local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "❄")
+      report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
     else
       clear_pane "$pane" "$agent"
     fi
@@ -146,7 +146,7 @@ update_pane() {
   local hot_sym expiring_sym cold_sym expiring_secs remaining symbol
   hot_sym=$(config_str "$agent" hot_symbol "♨️")
   expiring_sym=$(config_str "$agent" expiring_symbol "⚠️")
-  cold_sym=$(config_str "$agent" cold_symbol "❄cold")
+  cold_sym=$(config_str "$agent" cold_symbol "❄")
   expiring_secs=$(config_int "$agent" expiring_threshold_seconds 180)
   remaining=$((deadline - now))
   if (( remaining <= expiring_secs )); then
@@ -155,18 +155,38 @@ update_pane() {
     symbol="$hot_sym"
   fi
 
+  local state_name status_text tokens_text full_text ttl_ms
   if [[ "$agent" == codex ]]; then
     pct=0; [[ "$input" -gt 0 ]] && pct=$((read*100/input)); [[ "$pct" -gt 100 ]] && pct=100
     local pct_text; pct_text=""; [[ "$show_percentage" == true ]] && pct_text="${pct}%"
-    if [[ "$read" -gt 0 && -n "$deadline_text" ]]; then report_pane "$pane" "$agent" "${symbol}${deadline_text} $pct_text $read_text $model_text" "$(( (deadline-now)*1000 ))" || true
-    elif [[ "$read" -gt 0 ]]; then report_pane "$pane" "$agent" "${cold_sym} $pct_text $read_text $model_text" "$DISPLAY_TTL_MS" || true
-    else report_pane "$pane" "$agent" "${cold_sym} ${pct_text:-} $read_text $model_text" "$DISPLAY_TTL_MS" || true; fi
+    tokens_text="$read_text"
+
+    if [[ "$read" -gt 0 && -n "$deadline_text" ]]; then
+      if (( remaining <= expiring_secs )); then state_name="expiring"; else state_name="hot"; fi
+      status_text="${symbol}${deadline_text}"
+      ttl_ms=$(( (deadline-now)*1000 ))
+    else
+      state_name="cold"
+      status_text="$cold_sym"
+      ttl_ms=$DISPLAY_TTL_MS
+    fi
+    full_text="${status_text}${pct_text:+ $pct_text}${tokens_text:+ $tokens_text}${model_text:+ $model_text}"
+    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" || true
   else
     total=$((input + read + write)); pct=0; [[ "$total" -gt 0 ]] && pct=$((read*100/total)); [[ "$pct" -gt 100 ]] && pct=100
     pct_text=""; [[ "$show_percentage" == true ]] && pct_text="${pct}%"
+    tokens_text="${read_text}${write_text:+ $write_text}"
+
     if [[ "$total" -gt 0 && -n "$deadline_text" ]]; then
-      report_pane "$pane" "$agent" "${symbol}${deadline_text} $pct_text $read_text $write_text $model_text" "$(( (deadline-now)*1000 ))" || true
-    elif [[ "$total" -gt 0 ]]; then report_pane "$pane" "$agent" "${cold_sym} $pct_text $read_text $write_text $model_text" "$DISPLAY_TTL_MS" || true
-    else report_pane "$pane" "$agent" "${cold_sym} $pct_text $read_text $write_text $model_text" "$DISPLAY_TTL_MS" || true; fi
+      if (( remaining <= expiring_secs )); then state_name="expiring"; else state_name="hot"; fi
+      status_text="${symbol}${deadline_text}"
+      ttl_ms=$(( (deadline-now)*1000 ))
+    else
+      state_name="cold"
+      status_text="$cold_sym"
+      ttl_ms=$DISPLAY_TTL_MS
+    fi
+    full_text="${status_text}${pct_text:+ $pct_text}${tokens_text:+ $tokens_text}${model_text:+ $model_text}"
+    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" || true
   fi
 }
