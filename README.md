@@ -100,9 +100,11 @@ herdr server reload-config
 
 The plugin emits the following pane tokens:
 
-- **`$cache`**: Unified token string without middle dots (e.g. `~11:41 99% ⇣95.4k` when healthy, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring, or `99% ❄ ⇣95.4k` when cold).
+- **`$cache`**: Unified token string without middle dots (e.g. `~11:41 99% ⇣95.4k` when healthy, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring, or `❄ ⇣95.4k` when cold). Percentages are omitted after expiration because they describe the last request rather than the usable cache.
 - **`$cache_status`**: Expiration clock with optional symbol prefix (e.g. `~11:41` or `⏰~𝟭𝟭:𝟰𝟭`).
 - **`$cache_pct`**: Cache hit percentage (`99%`).
+- **`$cache_pct_num`**: Raw integer hit percentage for native numeric rules (`99`; cleared when cold).
+- **`$cache_remaining_secs`**: Seconds until estimated expiration (`240`; cleared when cold).
 - **`$cache_tokens`**: Read and write token counters (`⇣95.4k`).
 - **`$cache_state`**: State identifier (`hot`, `expiring`, or `cold`).
 - **`cache_deadline`**: Epoch timestamp used for declarative sorting.

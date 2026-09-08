@@ -164,14 +164,20 @@ printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p1.*cache=' \"$reports\"" 'watcher reports native session pane'
 assert_cmd "grep -q 'p1.*cache_status=' \"$reports\"" 'watcher reports granular cache_status'
-assert_cmd "grep -q 'p1.*cache_pct=' \"$reports\"" 'watcher reports granular cache_pct'
+assert_cmd "grep -q 'p1.*clear-token cache_pct' \"$reports\"" 'cold watcher clears formatted cache percentage'
+assert_cmd "grep -q 'p1.*clear-token cache_pct_num' \"$reports\"" 'cold watcher clears numeric cache percentage'
 assert_cmd "grep -q 'p1.*cache_tokens=' \"$reports\"" 'watcher reports granular cache_tokens'
 assert_cmd "grep -q 'p1.*clear-token cache_deadline' \"$reports\"" 'watcher clears cache_deadline on cold pane'
+assert_cmd "grep -q 'p1.*clear-token cache_remaining_secs' \"$reports\"" 'watcher clears cache_remaining_secs on cold pane'
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'missing rollout clears second pane'
 assert_cmd "grep -q 'p2.*clear-token cache_deadline' \"$reports\"" 'missing rollout clears cache_deadline'
+assert_cmd "grep -q 'p2.*clear-token cache_pct_num' \"$reports\"" 'missing rollout clears numeric percentage'
 assert_cmd "grep -q 'p3.*cache_state=cold' \"$reports\"" 'missing AGY usage reports cold'
 assert_cmd "grep -q 'p3.*clear-token cache_deadline' \"$reports\"" 'missing AGY usage clears cache_deadline'
 assert_cmd "grep -q 'p4.*agent opencode.*cache=' \"$reports\"" 'watcher reports OpenCode session pane'
+FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" bash -c \
+  'source "$1/lib/core.sh"; report_pane paneNumeric codex "~12:00 80% ⇣800" 15000 "~12:00" "80%" "⇣800" hot "80% ⇣800" 2000000000 240 80' _ "$ROOT"
+assert_cmd "grep -q 'paneNumeric.*cache_pct=80%' \"$reports\" && grep -q 'paneNumeric.*cache_remaining_secs=240' \"$reports\" && grep -q 'paneNumeric.*cache_pct_num=80' \"$reports\"" 'hot watcher reports formatted and numeric cache metadata'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'closed pane is cleared'
@@ -181,7 +187,10 @@ init_state
 now=$(date +%s)
 last_reported=""
 last_deadline=""
-report_pane() { last_reported="$3"; last_deadline="${10:-}"; }
+last_pct=""
+last_remaining=""
+last_pct_num=""
+report_pane() { last_reported="$3"; last_pct="${6:-}"; last_deadline="${10:-}"; last_remaining="${11:-}"; last_pct_num="${12:-}"; }
 sig="codex|s1|m|p|1000|800|0|0|0"
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
@@ -200,19 +209,27 @@ now_expired=$((now + 300))
 now=$now_expired update_pane paneSurvive agy agy-survive
 assert_cmd '[[ -z "$last_deadline" && "$last_reported" == *"800"* && "$last_reported" != *"0% ⇣0"* ]]' 'cold transition retains token counters instead of dropping to 0% ⇣0'
 assert_eq "$last_reported" "❄ ⇣800" 'default cold cache places snowflake immediately before retained token count'
+assert_eq "$last_pct" "" 'shared cold formatter clears formatted percentage'
+assert_eq "$last_pct_num" "" 'shared cold formatter clears numeric percentage'
+assert_eq "$last_remaining" "" 'shared cold formatter clears remaining seconds'
 unset -f agy_usage
 
-# Percentage-enabled agents keep the cold icon adjacent to the token count.
+# Percentage-enabled agents also suppress percentages while cold.
 codex_usage() { printf 'codex\tsess-cold\t%s\t1000\t0\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 jq -n --argjson now "$now" '{active:{agent:"codex",session_id:"sess-cold",model:"m",provider:"p",signature:"old",hit_at:($now-60),deadline:($now-1),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneColdCodex)"
 now=$now update_pane paneColdCodex codex sess-cold
-assert_eq "$last_reported" "80% ❄ ⇣800" 'cold icon follows percentage and immediately precedes token count'
+assert_eq "$last_reported" "❄ ⇣800" 'Codex cold cache suppresses percentage and keeps retained token count'
+assert_eq "$last_pct" "" 'Codex cold formatter clears formatted percentage'
+assert_eq "$last_pct_num" "" 'Codex cold formatter clears numeric percentage'
+assert_eq "$last_remaining" "" 'Codex cold formatter clears remaining seconds'
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
 # 1. Hot state: deadline 10 minutes ahead (> 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_eq "$last_deadline" "$((now+600))" 'active pane passes deadline to report_pane'
+if (( last_remaining >= 599 && last_remaining <= 600 )); then ok 'active pane passes remaining seconds to report_pane'; else not_ok 'active pane passes remaining seconds to report_pane'; fi
+assert_eq "$last_pct_num" "80" 'active pane passes numeric percentage to report_pane'
 assert_cmd "[[ \"$last_reported\" == '~'* && \"$last_reported\" != *'♨️'* ]]" 'hot cache displays clean clock without emoji by default'
 assert_cmd "[[ \"$last_reported\" =~ ~[0-9]{2}:[0-9]{2} ]]" 'hot cache clock remains non-bold before threshold (>5m)'
 

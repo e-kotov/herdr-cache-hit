@@ -83,9 +83,11 @@ The plugin emits the following pane tokens to Herdr:
 
 | Token | Description | Example Output |
 | :--- | :--- | :--- |
-| **`$cache`** | **Unified string** combining status, countdown, percentage, and token counts without middle-dot separators. | Hot: `~15:44 99% ⇣95.4k`<br>Expiring: `⏰~𝟭𝟱:𝟰𝟰 99% ⇣95.4k`<br>Cold: `99% ❄ ⇣95.4k` |
-| **`$cache_status`** | Just the status symbol and countdown clock (empty when cold). | `~15:44` or `⏰~𝟭𝟱:𝟰𝟰` |
-| **`$cache_pct`** | Just the cache hit percentage. | `99%` |
+| **`$cache`** | **Unified string** combining status, countdown, percentage, and token counts without middle-dot separators. Cold output omits the last-request percentage. | Hot: `~15:44 99% ⇣95.4k`<br>Expiring: `⏰~𝟭𝟱:𝟰𝟰 99% ⇣95.4k`<br>Cold: `❄ ⇣95.4k` |
+| **`$cache_status`** | Status symbol and countdown clock. | `~15:44`, `⏰~𝟭𝟱:𝟰𝟰`, or `❄` when cold |
+| **`$cache_pct`** | Formatted cache hit percentage; cleared when cold. | `99%` |
+| **`$cache_pct_num`** | Raw integer hit percentage for numeric comparisons; cleared when cold. | `99` |
+| **`$cache_remaining_secs`** | Seconds remaining until expiration; cleared when cold. | `240` |
 | **`$cache_tokens`** | Just the read/write token counters. | `⇣95.4k` |
 | **`$cache_state`** | Lifecycle state identifier. | `hot`, `expiring`, or `cold` |
 | **`cache_deadline`**| Unix epoch integer timestamp of expiration. | `1788877732` (cleared when cold) |

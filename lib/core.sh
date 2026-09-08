@@ -125,9 +125,14 @@ report_pane() {
   local pane=$1 agent=$2 token_val=$3 ttl_ms=${4:-15000}
   local status_val=${5:-} pct_val=${6:-} tokens_val=${7:-} state_val=${8:-}
   local details_val=${9:-} deadline_val=${10:-}
+  local remaining_secs=${11:-} pct_num=${12:-}
   local cmd=("$HERDR_BIN" pane report-metadata "$pane" --source "$SOURCE" --agent "$agent" --token "cache=$token_val" --ttl-ms "$ttl_ms")
   cmd+=(--token "cache_status=$status_val")
-  [[ -n "$pct_val" ]] && cmd+=(--token "cache_pct=$pct_val")
+  if [[ -n "$pct_val" ]]; then
+    cmd+=(--token "cache_pct=$pct_val")
+  else
+    cmd+=(--clear-token "cache_pct")
+  fi
   [[ -n "$tokens_val" ]] && cmd+=(--token "cache_tokens=$tokens_val")
   [[ -n "$state_val" ]] && cmd+=(--token "cache_state=$state_val")
   [[ -n "$details_val" ]] && cmd+=(--token "cache_details=$details_val")
@@ -136,11 +141,22 @@ report_pane() {
   else
     cmd+=(--clear-token "cache_deadline")
   fi
+  if [[ -n "$remaining_secs" && "$remaining_secs" =~ ^[0-9]+$ && "$remaining_secs" -gt 0 ]]; then
+    cmd+=(--token "cache_remaining_secs=$remaining_secs")
+  else
+    cmd+=(--clear-token "cache_remaining_secs")
+  fi
+  if [[ -n "$pct_num" && "$pct_num" =~ ^[0-9]+$ ]]; then
+    cmd+=(--token "cache_pct_num=$pct_num")
+  else
+    cmd+=(--clear-token "cache_pct_num")
+  fi
   "${cmd[@]}" >/dev/null 2>&1 || true
 }
 clear_pane() {
   "$HERDR_BIN" pane report-metadata "$1" --source "$SOURCE" --agent "${2:-codex}" \
     --clear-token cache --clear-token cache_status --clear-token cache_pct \
     --clear-token cache_tokens --clear-token cache_state --clear-token cache_details \
-    --clear-token cache_deadline --ttl-ms 15000 >/dev/null 2>&1 || true
+    --clear-token cache_deadline --clear-token cache_remaining_secs --clear-token cache_pct_num \
+    --ttl-ms 15000 >/dev/null 2>&1 || true
 }

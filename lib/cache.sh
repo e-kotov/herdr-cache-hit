@@ -263,23 +263,23 @@ update_pane() {
     else
       state_name="cold"
       status_text="$cold_sym"
+      pct_text=""
       ttl_ms=$DISPLAY_TTL_MS
     fi
     local parts=()
-    if [[ "$state_name" == "cold" ]]; then
-      [[ -n "$pct_text" ]] && parts+=("$pct_text")
-      [[ -n "$status_text" ]] && parts+=("$status_text")
-    else
-      [[ -n "$status_text" ]] && parts+=("$status_text")
-      [[ -n "$pct_text" ]] && parts+=("$pct_text")
-    fi
+    [[ -n "$status_text" ]] && parts+=("$status_text")
+    [[ -n "$pct_text" ]] && parts+=("$pct_text")
     [[ -n "$tokens_text" ]] && parts+=("$tokens_text")
     [[ -n "$model_text" ]] && parts+=("$model_text")
     full_text="${parts[*]:-}"
-    local details_text; details_text="${pct_text}${tokens_text:+ $tokens_text}"
-    local active_deadline=""
-    [[ "$state_name" != "cold" && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]] && active_deadline="$deadline"
-    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" "$active_deadline" || true
+    local details_text; details_text="${pct_text}${pct_text:+${tokens_text:+ }}${tokens_text}"
+    local active_deadline="" active_remaining="" active_pct_num=""
+    if [[ "$state_name" != "cold" && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then
+      active_deadline="$deadline"
+      (( remaining > 0 )) && active_remaining="$remaining"
+      active_pct_num="$pct"
+    fi
+    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" "$active_deadline" "$active_remaining" "$active_pct_num" || true
   else
     total=$((input + read + write)); pct=0; [[ "$total" -gt 0 ]] && pct=$((read*100/total)); [[ "$pct" -gt 100 ]] && pct=100
     pct_text=""; [[ "$show_percentage" == true ]] && pct_text="${pct}%"
@@ -297,22 +297,22 @@ update_pane() {
     else
       state_name="cold"
       status_text="$cold_sym"
+      pct_text=""
       ttl_ms=$DISPLAY_TTL_MS
     fi
     local parts=()
-    if [[ "$state_name" == "cold" ]]; then
-      [[ -n "$pct_text" ]] && parts+=("$pct_text")
-      [[ -n "$status_text" ]] && parts+=("$status_text")
-    else
-      [[ -n "$status_text" ]] && parts+=("$status_text")
-      [[ -n "$pct_text" ]] && parts+=("$pct_text")
-    fi
+    [[ -n "$status_text" ]] && parts+=("$status_text")
+    [[ -n "$pct_text" ]] && parts+=("$pct_text")
     [[ -n "$tokens_text" ]] && parts+=("$tokens_text")
     [[ -n "$model_text" ]] && parts+=("$model_text")
     full_text="${parts[*]:-}"
-    local details_text; details_text="${pct_text}${tokens_text:+ $tokens_text}"
-    local active_deadline=""
-    [[ "$state_name" != "cold" && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]] && active_deadline="$deadline"
-    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" "$active_deadline" || true
+    local details_text; details_text="${pct_text}${pct_text:+${tokens_text:+ }}${tokens_text}"
+    local active_deadline="" active_remaining="" active_pct_num=""
+    if [[ "$state_name" != "cold" && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then
+      active_deadline="$deadline"
+      (( remaining > 0 )) && active_remaining="$remaining"
+      active_pct_num="$pct"
+    fi
+    report_pane "$pane" "$agent" "$full_text" "$ttl_ms" "$status_text" "$pct_text" "$tokens_text" "$state_name" "$details_text" "$active_deadline" "$active_remaining" "$active_pct_num" || true
   fi
 }
