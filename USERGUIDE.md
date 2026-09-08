@@ -18,10 +18,10 @@ This guide covers full configuration, token customization, sidebar styling, and 
 
 ## Architecture & How It Works
 
-`cache-hit` is an event-driven, one-shot metadata scanner for [Herdr](https://github.com/herdrdev/herdr).
-- **No Background Daemon**: Unlike polling daemons, `watch.sh` executes only when Herdr triggers an event (agent detection, status change, focus, pane close/exit).
-- **Self-Contained Expiration Timer**: When a pane has an active cache, a lightweight background sleep process (`schedule_wake`) is scheduled to wake Herdr at the exact expiration threshold (e.g. 5 minutes before expiry or at expiry) to transition the UI seamlessly without requiring continuous polling.
-- **Privacy**: Prompts, tool inputs, and message bodies are never read or transmitted. Only token usage counters and session identifiers are inspected.
+`cache-hit` is an event-driven metadata scanner for [Herdr](https://github.com/herdrdev/herdr).
+- **No Background Daemon**: Herdr events start `watch.sh`; no persistent scanner process is required.
+- **Single Active-Cache Timer**: While at least one cache is active, one lightweight sleep process wakes at the earlier of 15 seconds or the next expiration display transition. This bounds stale state after a same-pane agent restart to 15 seconds. When all caches are cold, no periodic scan is scheduled.
+- **Privacy**: Content is processed locally only as necessary to extract usage metadata and is not intentionally extracted, retained, logged, or transmitted. Only token usage counters, session identifiers, model names, and provider identifiers are tracked.
 
 ---
 
@@ -41,7 +41,7 @@ If `config.json` does not exist, safe built-in defaults are used. Changes to `co
 | :--- | :--- | :--- | :--- |
 | `hot_symbol` | string | `""` | Symbol or emoji prepended to the countdown clock when the cache is active and healthy (> `expiring_threshold_seconds`). E.g. `"♨️"` or `""`. |
 | `expiring_symbol` | string | `"⏰"` | Symbol or emoji prepended when remaining cache lifetime is less than or equal to `expiring_threshold_seconds`. E.g. `"⏰"` or `"⚠️"`. |
-| `cold_symbol` | string | `""` | Symbol prepended when the cache has expired. E.g. `"❄"` or `""`. |
+| `cold_symbol` | string | `"❄"` | Symbol shown immediately before retained token counts when the cache has expired. Set `""` to hide it. |
 | `expiring_threshold_seconds`| integer | `300` | Warning threshold in seconds (default 5 minutes). At or below this, the warning symbol appears. |
 | `bold_time` | boolean | `true` | When `true`, converts countdown clock digits into Unicode mathematical sans-serif bold characters (`𝟬-𝟵`) for visual punch. |
 | `bold_threshold_seconds` | integer | `300` | Countdown threshold in seconds under which clock digits turn bold. Keeps healthy caches sleek and non-bold, turning bold only when expiring. |
@@ -83,7 +83,7 @@ The plugin emits the following pane tokens to Herdr:
 
 | Token | Description | Example Output |
 | :--- | :--- | :--- |
-| **`$cache`** | **Unified string** combining status, countdown, percentage, and token counts without middle-dot separators. | Hot: `~15:44 99% ⇣95.4k`<br>Expiring: `⏰~𝟭𝟱:𝟰𝟰 99% ⇣95.4k`<br>Cold: `99% ⇣95.4k` |
+| **`$cache`** | **Unified string** combining status, countdown, percentage, and token counts without middle-dot separators. | Hot: `~15:44 99% ⇣95.4k`<br>Expiring: `⏰~𝟭𝟱:𝟰𝟰 99% ⇣95.4k`<br>Cold: `99% ❄ ⇣95.4k` |
 | **`$cache_status`** | Just the status symbol and countdown clock (empty when cold). | `~15:44` or `⏰~𝟭𝟱:𝟰𝟰` |
 | **`$cache_pct`** | Just the cache hit percentage. | `99%` |
 | **`$cache_tokens`** | Just the read/write token counters. | `⇣95.4k` |
@@ -175,7 +175,7 @@ The active mode is saved in `sort_mode.json` and automatically restored whenever
 ### AGY / Antigravity CLI Architecture
 
 Because AGY CLI transcripts do not serialize token metrics to disk, the plugin uses a 3-tier fallback strategy:
-1. **Tier 1 — Live Statusline Sidecar (Fastest, Zero Polling)**: If you use the optional statusline export script (`scripts/agy-statusline-capture.sh` or equivalent in your `statusline.sh`), real-time prompt cache stats are written to `~/.cache/herdr-cache-plugin/agy-statusline/<sid>.json`. This gives instantaneous HUD updates with zero SQLite parsing.
+1. **Tier 1 — Live Statusline Sidecar (Fastest)**: The supplied `scripts/agy-statusline-capture.sh` wrapper writes real-time prompt cache stats to `~/.cache/herdr-cache-plugin/agy-statusline/<sid>.json` without SQLite parsing.
 2. **Tier 2 — Go SQLite Helper (`agy-usage-*`)**: If the statusline sidecar is absent, the plugin invokes the compiled helper to extract token metrics directly from AGY's internal SQLite database (`~/.gemini/antigravity-cli/conversations/<sid>.db`). Precompiled binaries are provided for macOS and Linux.
 3. **Tier 3 — Transcript Fallback**: If neither is available, it attempts to read `transcript.jsonl` (used by AGY Web IDE).
 
@@ -183,7 +183,7 @@ Because AGY CLI transcripts do not serialize token metrics to disk, the plugin u
 > **If you don't use AGY CLI:**
 > You do **not** need the Go helper or any statusline scripts. Codex, Claude Code, and OpenCode work completely out of the box with standard system tools (`bash`, `jq`, and optionally `python3`).
 
-For detailed instructions and copy-paste statusline snippets, see the **[Antigravity CLI (AGY) Integration Guide](docs/AGY_INTEGRATION.md)**.
+For installation instructions for the tested wrapper, see the **[Antigravity CLI (AGY) Integration Guide](docs/AGY_INTEGRATION.md)**.
 
 ---
 
@@ -198,7 +198,7 @@ herdr pane list | jq '.result.panes[] | {agent, tokens}'
 ### Inspect Observations
 Survival observations are stored in:
 ```bash
-cat ~/.local/share/herdr/plugins/cache-hit/observations.json
+cat "${XDG_STATE_HOME:-$HOME/.local/state}/herdr/plugins/cache-hit/observations.json"
 ```
 
 ### Verify Scripts & Tests

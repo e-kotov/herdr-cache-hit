@@ -4,21 +4,72 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      sha: ${{ github.sha }}
+
   build-and-release:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '1.22'
+          go-version: '1.24'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq bc shellcheck
+
+      - name: Validate tag and manifest version
+        env:
+          TAG: ${{ github.ref_name }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Tag '$TAG' is not a supported stable release tag" >&2
+            exit 1
+          fi
+          actual_sha=$(git rev-parse HEAD)
+          if [[ "$actual_sha" != "$EXPECTED_SHA" ]]; then
+            echo "::error::HEAD $actual_sha does not match event SHA $EXPECTED_SHA" >&2
+            exit 1
+          fi
+          manifest_version=$(sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*["'"'"']\([^"'"'"']*\)["'"'"'].*/\1/p' herdr-plugin.toml | head -n 1)
+          tag_version="${TAG#v}"
+          if [[ "$tag_version" != "$manifest_version" ]]; then
+            echo "::error::Tag version '$tag_version' != manifest version '$manifest_version'" >&2
+            exit 1
+          fi
+
+      - name: Run verification checks
+        run: |
+          bash -n watch.sh
+          bash -n bin/herdr-cache-view
+          for f in lib/*.sh scripts/*.sh; do
+            bash -n "$f"
+          done
+          shellcheck watch.sh lib/*.sh bin/herdr-cache-view scripts/*.sh
+          go test -v ./cmd/agy-usage/...
+          bash tests/test_watch.sh
+
+      - name: Guard against eval in documentation
+        run: |
+          if grep -q 'eval' docs/AGY_INTEGRATION.md; then
+            echo "::error::docs/AGY_INTEGRATION.md contains 'eval' — this is a known injection vector" >&2
+            exit 1
+          fi
 
       - name: Build multi-arch helper binaries
         run: |
@@ -28,12 +79,20 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o dist/agy-usage-linux-amd64 ./cmd/agy-usage
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o dist/agy-usage-linux-arm64 ./cmd/agy-usage
 
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum agy-usage-* > checksums.txt
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          tag_name: ${{ github.ref_name }}
           files: |
             dist/agy-usage-darwin-arm64
             dist/agy-usage-darwin-amd64
             dist/agy-usage-linux-amd64
             dist/agy-usage-linux-arm64
+            dist/checksums.txt
+            THIRD_PARTY_NOTICES.md
           generate_release_notes: true

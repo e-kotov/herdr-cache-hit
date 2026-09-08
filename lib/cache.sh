@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 state_path() { printf '%s/state-%s.json\n' "$STATE_DIR" "${1//[^A-Za-z0-9_.-]/_}"; }
+reset_pane_cache() {
+  local path tmp
+  path=$(state_path "$1")
+  [[ -s "$path" ]] || return 0
+  tmp=$(mktemp "$STATE_DIR/state.XXXXXX") || return 1
+  if jq '.active = null' "$path" >"$tmp" 2>/dev/null; then
+    atomic_install "$tmp" "$path"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
 valid_state() { jq -e 'type == "object" and ((.active == null) or ((.active | type) == "object" and ([.active.agent,.active.session_id,.active.model,.active.provider,.active.signature] | all(type == "string")) and (.active.hit_at | type == "number") and (.active.deadline | type == "number")))' "$1" >/dev/null 2>&1; }
 load_state() {
   local path=$1 tmp
@@ -89,8 +101,12 @@ update_pane() {
         provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
         jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
       else
+        # Different session or no previous state: clear any stale cached state
+        if [[ "$prev_active" == "true" ]]; then
+          jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+        fi
         if [[ "$agent" == agy ]]; then
-          local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "")
+          local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "❄")
           report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
         else
           clear_pane "$pane" "$agent"
@@ -175,6 +191,9 @@ update_pane() {
   fi
   local deadline pct total
   deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
+  if [[ "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then
+    ACTIVE_CACHE_COUNT=$(( ${ACTIVE_CACHE_COUNT:-0} + 1 ))
+  fi
   local show_deadline show_read show_write show_percentage show_model bold_time read_text write_text model_text deadline_text
   local default_show_pct=true
   [[ "$agent" == agy || "$agent" == claude ]] && default_show_pct=false
@@ -192,7 +211,7 @@ update_pane() {
   local hot_sym expiring_sym cold_sym expiring_secs bold_secs remaining symbol
   hot_sym=$(config_str "$agent" hot_symbol "")
   expiring_sym=$(config_str "$agent" expiring_symbol "⏰")
-  cold_sym=$(config_str "$agent" cold_symbol "")
+  cold_sym=$(config_str "$agent" cold_symbol "❄")
   expiring_secs=$(config_int "$agent" expiring_threshold_seconds 300)
   bold_secs=$(config_int "$agent" bold_threshold_seconds "$expiring_secs")
   remaining=$((deadline - now))
@@ -247,8 +266,13 @@ update_pane() {
       ttl_ms=$DISPLAY_TTL_MS
     fi
     local parts=()
-    [[ -n "$status_text" ]] && parts+=("$status_text")
-    [[ -n "$pct_text" ]] && parts+=("$pct_text")
+    if [[ "$state_name" == "cold" ]]; then
+      [[ -n "$pct_text" ]] && parts+=("$pct_text")
+      [[ -n "$status_text" ]] && parts+=("$status_text")
+    else
+      [[ -n "$status_text" ]] && parts+=("$status_text")
+      [[ -n "$pct_text" ]] && parts+=("$pct_text")
+    fi
     [[ -n "$tokens_text" ]] && parts+=("$tokens_text")
     [[ -n "$model_text" ]] && parts+=("$model_text")
     full_text="${parts[*]:-}"
@@ -276,8 +300,13 @@ update_pane() {
       ttl_ms=$DISPLAY_TTL_MS
     fi
     local parts=()
-    [[ -n "$status_text" ]] && parts+=("$status_text")
-    [[ -n "$pct_text" ]] && parts+=("$pct_text")
+    if [[ "$state_name" == "cold" ]]; then
+      [[ -n "$pct_text" ]] && parts+=("$pct_text")
+      [[ -n "$status_text" ]] && parts+=("$status_text")
+    else
+      [[ -n "$status_text" ]] && parts+=("$status_text")
+      [[ -n "$pct_text" ]] && parts+=("$pct_text")
+    fi
     [[ -n "$tokens_text" ]] && parts+=("$tokens_text")
     [[ -n "$model_text" ]] && parts+=("$model_text")
     full_text="${parts[*]:-}"

@@ -1,8 +1,7 @@
-# Documentation markdown files to keep
-*.md
-!README.md
-!USERGUIDE.md
-!docs/*.md
+# Development/build markdown files (not shipped with the release)
+/HANDOFF_AGY.md
+/RELEASE_READINESS.md
+/RELEASE_REVIEW_REMARKS.md
 
 # Helper binaries built from source or downloaded from releases
 /bin/agy-usage-*

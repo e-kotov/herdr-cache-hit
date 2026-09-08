@@ -5,7 +5,7 @@
 
 A high-efficiency plugin for [Herdr](https://github.com/herdrdev/herdr) that provides real-time prompt-cache HUD metrics, dynamic expiration countdowns, and declarative cache-deadline agent sorting.
 
-Supports **Codex CLI**, **AGY** ([Antigravity CLI](https://github.com/herdrdev/herdr)), **Claude Code**, and **OpenCode**.
+Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **Claude Code**, and **OpenCode**.
 
 ---
 
@@ -14,8 +14,8 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](https://github.com/herdrdev/h
 - **Live Prompt-Cache HUD**: Real-time cache hit ratios, read/cached token metrics, and estimated expiration countdowns directly in Herdr's sidebar.
 - **Urgency Transitions**: Automatic visual transitions from healthy state (`~15:44`) to urgent alarm warning (`⏰~𝟭𝟱:𝟰𝟰`) using mathematical Unicode bold digits when nearing expiration (configurable threshold, default ≤5m).
 - **Declarative Agent Sorting**: Sort active agent panes by prompt-cache expiration deadline (`cache_deadline asc`), keeping expiring agents at the top. Toggle effortlessly with a single keybinding (`prefix+s`).
-- **Zero Background Polling**: Executes strictly on Herdr event hooks (`pane.agent_detected`, `pane.focused`, etc.) with a single lightweight wake timer scheduled at the exact expiration deadline.
-- **Privacy-First**: Inspects only local session metadata and token ledger files. Prompts, message contents, and tool payloads are never read or transmitted.
+- **Bounded Active Rescans**: Event hooks update immediately. While any pane has an active cache, one lightweight wake timer rescans at most every 15 seconds (or sooner for an expiration transition); cold installations schedule no periodic work. A rapid same-pane agent restart can therefore show stale cache state for no more than 15 seconds.
+- **Privacy-First**: Content is processed locally only as necessary to extract usage metadata and is not intentionally extracted, retained, logged, or transmitted.
 
 ---
 
@@ -24,9 +24,9 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](https://github.com/herdrdev/h
 - **Operating Systems**: **macOS** and **Linux** (native). On **Windows**, use **WSL2** (Windows Subsystem for Linux). Native Windows (PowerShell / Command Prompt) is not supported as Herdr and its plugin hooks run in a POSIX shell environment.
 - **Dependencies**:
   - `jq` (**Required**): Core JSON parser for state and token metadata (`brew install jq` or `sudo apt install jq`).
-  - `bash` 4.0+ (**Required**): Standard on Linux; macOS ships bash 3.2 which works, but Homebrew bash is recommended.
+  - `bash` (**Required**): Standard on Linux (4.0+) and macOS (native bash 3.2 works; Homebrew bash 4.0+ is also supported).
   - `python3` (**Optional**): Only needed if monitoring **OpenCode** (queries its SQLite database) or using `herdr-cache-view toggle` for view sorting. Not needed for Codex or Claude Code.
-  - `Go` (**Optional**): Only needed if building the AGY SQLite helper from source instead of downloading the precompiled release binary.
+  - `Go` 1.24+ (**Optional**): Only needed if building the AGY SQLite helper from source instead of downloading the precompiled release binary.
 
 ---
 
@@ -49,7 +49,7 @@ herdr plugin list
 *(Optional — only for AGY users)*: If you monitor Antigravity CLI, download the precompiled SQLite helper binary (or see the [AGY Integration Guide](docs/AGY_INTEGRATION.md) for real-time statusline options):
 
 ```bash
-# Download precompiled binary from latest release:
+# Download precompiled binary matching the plugin manifest version:
 ./scripts/download-helpers.sh
 
 # OR compile locally:
@@ -100,7 +100,7 @@ herdr server reload-config
 
 The plugin emits the following pane tokens:
 
-- **`$cache`**: Unified token string without middle dots (e.g. `~11:41 99% ⇣95.4k` when healthy, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring, or `99% ⇣95.4k` when cold).
+- **`$cache`**: Unified token string without middle dots (e.g. `~11:41 99% ⇣95.4k` when healthy, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring, or `99% ❄ ⇣95.4k` when cold).
 - **`$cache_status`**: Expiration clock with optional symbol prefix (e.g. `~11:41` or `⏰~𝟭𝟭:𝟰𝟭`).
 - **`$cache_pct`**: Cache hit percentage (`99%`).
 - **`$cache_tokens`**: Read and write token counters (`⇣95.4k`).

@@ -48,7 +48,10 @@ def get_usage(session_id, cwd="", supplied=""):
     if not db_path:
         return None
     try:
-        con = sqlite3.connect(f"file:{db_path}?immutable=1", uri=True)
+        con = sqlite3.connect("file:{}?mode=ro".format(
+            __import__('urllib.parse', fromlist=['quote']).quote(db_path, safe="/")
+        ), uri=True, timeout=1.0)
+        con.execute("PRAGMA busy_timeout = 1000;")
         cur = con.cursor()
 
         # If session_id not given or doesn't match, attempt resolution by directory

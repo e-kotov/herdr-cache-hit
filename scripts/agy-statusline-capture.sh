@@ -6,19 +6,31 @@ set -euo pipefail
 payload=$(cat)
 original="${AGY_STATUSLINE_SCRIPT:-$HOME/.gemini/antigravity-cli/statusline.real.sh}"
 
-# Extract conversation ID and prompt cache metrics
-conv_id="" model="Gemini" input=0 read=0 write=0
-eval "$(jq -r '
+# Parse into a validated JSON object so empty strings stay distinct fields.
+conv_id="" model="" input=0 read=0 write=0
+parsed=$(jq -ce '
+  def counter: if . == null then 0 elif type == "number" and . >= 0 and floor == . then . else error("invalid counter") end;
   (.conversation_id // .session_id // "") as $sid |
-  (.model.display_name // .model // "Gemini") as $model |
+  (if (.model | type) == "object" then (.model.display_name // "") elif (.model | type) == "string" then .model else "" end) as $model |
   (.context_window.current_usage // {}) as $u |
-  ($u.input_tokens // 0) as $input |
-  ($u.cache_read_input_tokens // 0) as $read |
-  ($u.cache_creation_input_tokens // 0) as $write |
-  "conv_id=\($sid | @sh); model=\($model | @sh); input=\($input); read=\($read); write=\($write);"
-' <<<"$payload" 2>/dev/null || true)"
+  {
+    session_id: ($sid | tostring | gsub("[\t\r\n]"; " ")),
+    model: ($model | tostring | gsub("[\t\r\n]"; " ")),
+    input: ($u.input_tokens | counter),
+    read: ($u.cache_read_input_tokens | counter),
+    write: ($u.cache_creation_input_tokens | counter)
+  }
+' <<<"$payload" 2>/dev/null || true)
 
-if [[ -n "${conv_id:-}" ]] && (( read + write > 0 )); then
+if [[ -n "$parsed" ]]; then
+  conv_id=$(jq -r '.session_id' <<<"$parsed")
+  model=$(jq -r '.model' <<<"$parsed")
+  input=$(jq -r '.input' <<<"$parsed")
+  read=$(jq -r '.read' <<<"$parsed")
+  write=$(jq -r '.write' <<<"$parsed")
+fi
+
+if [[ -n "${conv_id:-}" ]] && jq -e '.read > 0 or .write > 0' >/dev/null 2>&1 <<<"$parsed"; then
   state_dir="${AGY_STATUSLINE_STATE_DIR:-$HOME/.cache/herdr-cache-plugin/agy-statusline}"
   mkdir -p "$state_dir" 2>/dev/null || true
   key=$(printf '%s' "$conv_id" | tr -c 'A-Za-z0-9_.-' '_')

@@ -15,7 +15,16 @@ readonly LOCK_DIR="$STATE_DIR/watcher.lock"
 readonly SEEN_FILE="$STATE_DIR/seen-panes"
 readonly ROLLOUT_INDEX="$STATE_DIR/rollouts.index"
 readonly ROLLOUT_INDEX_TTL=15
+readonly ACTIVE_RESCAN_SECONDS=15
 readonly OBSERVATIONS_FILE="$STATE_DIR/observations.json"
+next_wake_delay() {
+  local active=${1:-0} transition=${2:-} delay=$ACTIVE_RESCAN_SECONDS
+  [[ "$active" =~ ^[0-9]+$ ]] && (( active > 0 )) || return 1
+  if [[ "$transition" =~ ^[0-9]+$ ]] && (( transition > 0 && transition < delay )); then
+    delay=$transition
+  fi
+  printf '%s\n' "$delay"
+}
 require_runtime() { command -v jq >/dev/null 2>&1 || { echo 'cache-hit: jq is required' >&2; return 1; }; }
 config_value() {
   [[ -s "$CONFIG_FILE" ]] || return 1
@@ -135,4 +144,3 @@ clear_pane() {
     --clear-token cache_tokens --clear-token cache_state --clear-token cache_details \
     --clear-token cache_deadline --ttl-ms 15000 >/dev/null 2>&1 || true
 }
-

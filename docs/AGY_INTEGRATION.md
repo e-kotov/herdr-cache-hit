@@ -36,56 +36,23 @@ bin/agy-usage-<os>-<arch> "$HOME/.gemini/antigravity-cli/conversations/<session_
 ```
 This reads the latest generation metadata from the SQLite database and feeds exact input, cache read, and cache write tokens into Herdr.
 
+> **Compatibility note:** The v0.1.0 decoder is covered by a schema-derived synthetic fixture, not a captured AGY payload. If AGY changes its private protobuf layout or the helper returns no data, use the tested statusline bridge below.
+
 ---
 
 ## Method 2: Live Statusline Bridge (Zero-Lag / Real-Time)
 
 If you want instantaneous HUD updates while AGY is streaming turns—without waiting for generation records to commit to SQLite—you can bridge AGY's statusline callback to Herdr.
 
-### Option 2A: Add the Bridge Snippet to your existing `statusline.sh`
-
-If you already have a custom statusline script at `~/.gemini/antigravity-cli/statusline.sh`, paste this snippet near the top:
+Use the supplied wrapper as the supported bridge implementation. Its installer preserves an existing regular file or symlink as `statusline.real.sh`, refuses to overwrite a backup, and is safe to run again after a successful installation.
 
 ```bash
-# --- Herdr cache-hit bridge for AGY ---
-payload=$(cat)
-eval "$(jq -r '
-  (.conversation_id // .session_id // "") as $sid |
-  (.model.display_name // .model // "Gemini") as $model |
-  (.context_window.current_usage // {}) as $u |
-  ($u.input_tokens // 0) as $input |
-  ($u.cache_read_input_tokens // 0) as $read |
-  ($u.cache_creation_input_tokens // 0) as $write |
-  "conv_id=\($sid | @sh); model=\($model | @sh); input=\($input); read=\($read); write=\($write);"
-' <<<"$payload" 2>/dev/null || true)"
-
-if [[ -n "${conv_id:-}" ]] && (( read + write > 0 )); then
-  state_dir="$HOME/.cache/herdr-cache-plugin/agy-statusline"
-  mkdir -p "$state_dir" 2>/dev/null || true
-  key=$(printf '%s' "$conv_id" | tr -c 'A-Za-z0-9_.-' '_')
-  now=$(date +%s)
-  deadline=$((now + 300))
-  tmp="$state_dir/$key.json.$$"
-  if jq -n \
-    --arg sid "$conv_id" --arg model "$model" --arg provider "antigravity" \
-    --argjson observed "$now" --argjson deadline "$deadline" \
-    --argjson input "$input" --argjson read "$read" --argjson write "$write" \
-    '{session_id:$sid,observed_at:$observed,input_tokens:$input,cache_read_tokens:$read,cache_creation_tokens:$write,model:$model,provider:$provider,deadline:$deadline}' \
-    >"$tmp" 2>/dev/null; then
-    mv -f "$tmp" "$state_dir/$key.json" 2>/dev/null || rm -f "$tmp"
-  fi
-fi
-# --- End Herdr bridge ---
+# The clone path must be absolute.
+/absolute/path/to/herdr-cache-hit/scripts/install-agy-statusline.sh \
+  /absolute/path/to/herdr-cache-hit
 ```
 
-### Option 2B: Use the provided wrapper script
-
-If you don't have a custom `statusline.sh` or prefer not to edit it, you can point AGY to our wrapper script:
-
-```bash
-mkdir -p ~/.gemini/antigravity-cli
-ln -sf "$(pwd)/scripts/agy-statusline-capture.sh" ~/.gemini/antigravity-cli/statusline.sh
-```
+The wrapper forwards every payload unchanged to the preserved statusline. If no prior statusline existed, it prints the original payload.
 
 ---
 

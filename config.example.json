@@ -1,7 +1,7 @@
 {
   "hot_symbol": "",
   "expiring_symbol": "⏰",
-  "cold_symbol": "",
+  "cold_symbol": "❄",
   "expiring_threshold_seconds": 300,
   "bold_time": true,
   "bold_threshold_seconds": 300,
@@ -12,7 +12,8 @@
     "show_read_tokens": true,
     "show_write_tokens": false,
     "show_percentage": false,
-    "show_model": false
+    "show_model": false,
+    "ttl_ceiling": 3600
   },
   "claude": {
     "enabled": true,
@@ -20,7 +21,8 @@
     "show_read_tokens": true,
     "show_write_tokens": false,
     "show_percentage": false,
-    "show_model": false
+    "show_model": false,
+    "ttl_ceiling": 3600
   },
   "codex": {
     "enabled": true,
@@ -28,7 +30,8 @@
     "show_read_tokens": true,
     "show_write_tokens": false,
     "show_percentage": true,
-    "show_model": false
+    "show_model": false,
+    "ttl_ceiling": 3600
   },
   "opencode": {
     "enabled": true,
@@ -36,6 +39,7 @@
     "show_read_tokens": true,
     "show_write_tokens": false,
     "show_percentage": true,
-    "show_model": false
+    "show_model": false,
+    "ttl_ceiling": 3600
   }
 }

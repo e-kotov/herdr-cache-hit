@@ -118,8 +118,38 @@ con.commit()
 con.close()
 "
   assert_eq "$(opencode_usage oc-1 | cut -f1,2,4-10)" $'opencode\toc-1\t15\t45\t10\t0\t0\tgpt-5\tkiconnect' 'OpenCode message maps tokens, model, and provider'
+  special_db="$TMP/opencode#query?percent%.db"
+  cp "$opencode_db" "$special_db"
+  assert_eq "$(opencode_usage oc-1 '' "$special_db" | cut -f1,2,4-10)" $'opencode\toc-1\t15\t45\t10\t0\t0\tgpt-5\tkiconnect' 'OpenCode reads database paths containing #, ?, and %'
   update_pane paneOC opencode oc-1 /same
   assert_cmd "jq -e '.active.agent == \"opencode\" and .active.session_id == \"oc-1\" and .active.model == \"gpt-5\"' \"$(state_path paneOC)\"" 'OpenCode pane state is recorded'
+
+  # Test OpenCode with live WAL mode and genuinely uncheckpointed committed row
+  wal_fifo="$TMP/wal_sync"
+  mkfifo "$wal_fifo"
+  python3 -c "
+import sqlite3
+con = sqlite3.connect('$opencode_db')
+con.execute('PRAGMA journal_mode=WAL;')
+cur = con.cursor()
+cur.execute('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ('oc-wal', '/wal', 2000, 3000, '{\"id\":\"m-wal\",\"providerID\":\"p-wal\"}', 50, 100, 20))
+cur.execute('INSERT INTO message VALUES (?, ?, ?, ?, ?)', ('m-wal-1', 'oc-wal', 2000, 3000, '{\"role\":\"assistant\",\"tokens\":{\"input\":30,\"cache\":{\"read\":90,\"write\":25}},\"modelID\":\"claude-3-7\",\"providerID\":\"anthropic\",\"time\":{\"completed\":1788784330000}}'))
+con.commit()
+# Signal commit is done, then block until reader signals us to close
+open('$wal_fifo', 'w').write('ready\n')
+open('$wal_fifo', 'r').read()
+con.close()
+" &
+  wal_pid=$!
+  # Wait for writer to signal commit is done (blocks until FIFO is written)
+  read -r _ < "$wal_fifo"
+  # Assert WAL file exists (writer still holds connection)
+  assert_cmd "[[ -f '${opencode_db}-wal' ]]" 'WAL file exists while writer holds connection'
+  assert_eq "$(opencode_usage oc-wal | cut -f1,2,4-10)" $'opencode\toc-wal\t30\t90\t25\t0\t0\tclaude-3-7\tanthropic' 'OpenCode reads committed rows from live WAL database'
+  # Release writer
+  echo "done" > "$wal_fifo"
+  wait "$wal_pid" 2>/dev/null || true
+  rm -f "$wal_fifo"
 fi
 
 fake="$TMP/fake-herdr"; reports="$TMP/watcher-reports"; panes="$TMP/panes.json"
@@ -164,7 +194,15 @@ assert_cmd '[[ "$(jq -r .active.read "$(state_path paneSurvive)")" == "800" && "
 now_expired=$((now + 300))
 now=$now_expired update_pane paneSurvive agy agy-survive
 assert_cmd '[[ -z "$last_deadline" && "$last_reported" == *"800"* && "$last_reported" != *"0% ⇣0"* ]]' 'cold transition retains token counters instead of dropping to 0% ⇣0'
+assert_eq "$last_reported" "❄ ⇣800" 'default cold cache places snowflake immediately before retained token count'
 unset -f agy_usage
+
+# Percentage-enabled agents keep the cold icon adjacent to the token count.
+codex_usage() { printf 'codex\tsess-cold\t%s\t1000\t0\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
+jq -n --argjson now "$now" '{active:{agent:"codex",session_id:"sess-cold",model:"m",provider:"p",signature:"old",hit_at:($now-60),deadline:($now-1),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneColdCodex)"
+now=$now update_pane paneColdCodex codex sess-cold
+assert_eq "$last_reported" "80% ❄ ⇣800" 'cold icon follows percentage and immediately precedes token count'
+codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
 # 1. Hot state: deadline 10 minutes ahead (> 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
@@ -252,5 +290,198 @@ assert_eq "$(get_sort_mode)" "expiry" 'toggle from native yields expiry'
 assert_eq "$last_rpc_method" "agent.view.set" 'expiry mode issues agent.view.set'
 if [[ "$last_rpc_params" == *'"label": "expiry"'* ]]; then ok 'expiry mode passes expiry label'; else not_ok 'expiry mode passes expiry label'; fi
 
-exit "$fail"
+# 7. AGY statusline capture wrapper tests
+cap_dir="$TMP/agy-capture-test"
+export AGY_STATUSLINE_STATE_DIR="$cap_dir"
+mkdir -p "$cap_dir"
 
+# Valid payload
+valid_payload='{"conversation_id":"cap-safe-1","model":{"display_name":"Gemini 3.8 Flash"},"context_window":{"current_usage":{"input_tokens":1000,"cache_read_input_tokens":400,"cache_creation_input_tokens":200}}}'
+bash "$ROOT/scripts/agy-statusline-capture.sh" <<<"$valid_payload" >/dev/null
+assert_cmd "[[ -s \"$cap_dir/cap-safe-1.json\" ]]" 'statusline wrapper creates state for valid payload'
+assert_cmd "jq -e '.input_tokens == 1000 and .cache_read_tokens == 400 and .cache_creation_tokens == 200' \"$cap_dir/cap-safe-1.json\"" 'statusline wrapper stores correct token counters'
+
+# Command injection payload attempt
+rm -f "$TMP/injected_marker"
+inject_payload='{"conversation_id":"cap-inject","model":"Gemini","context_window":{"current_usage":{"input_tokens":"100; touch '"$TMP"'/injected_marker;","cache_read_input_tokens":50,"cache_creation_input_tokens":10}}}'
+bash "$ROOT/scripts/agy-statusline-capture.sh" <<<"$inject_payload" >/dev/null 2>&1 || true
+assert_cmd "[[ ! -f \"$TMP/injected_marker\" ]]" 'statusline wrapper prevents command injection from token counters'
+assert_cmd "[[ ! -e \"$cap_dir/cap-inject.json\" ]]" 'statusline wrapper rejects a non-numeric counter'
+negative_payload='{"conversation_id":"cap-negative","model":"Gemini","context_window":{"current_usage":{"input_tokens":10,"cache_read_input_tokens":-1,"cache_creation_input_tokens":2}}}'
+bash "$ROOT/scripts/agy-statusline-capture.sh" <<<"$negative_payload" >/dev/null 2>&1 || true
+assert_cmd "[[ ! -e \"$cap_dir/cap-negative.json\" ]]" 'statusline wrapper rejects a negative counter'
+fraction_payload='{"conversation_id":"cap-fraction","model":"Gemini","context_window":{"current_usage":{"input_tokens":10,"cache_read_input_tokens":1.5,"cache_creation_input_tokens":2}}}'
+bash "$ROOT/scripts/agy-statusline-capture.sh" <<<"$fraction_payload" >/dev/null 2>&1 || true
+assert_cmd "[[ ! -e \"$cap_dir/cap-fraction.json\" ]]" 'statusline wrapper rejects a fractional counter'
+
+# Pass-through to real statusline
+real_statusline="$TMP/fake_real_statusline.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "PASSED:%s" "$(< /dev/stdin)"' >"$real_statusline"
+chmod +x "$real_statusline"
+out=$(AGY_STATUSLINE_SCRIPT="$real_statusline" bash "$ROOT/scripts/agy-statusline-capture.sh" <<<"HELLO_PAYLOAD")
+assert_eq "$out" "PASSED:HELLO_PAYLOAD" 'statusline wrapper passes through to original script'
+
+# Empty model strings survive structured parsing; an empty session creates no sidecar.
+empty_model_payload='{"conversation_id":"cap-empty-model","model":"","context_window":{"current_usage":{"input_tokens":10,"cache_read_input_tokens":5,"cache_creation_input_tokens":0}}}'
+bash "$ROOT/scripts/agy-statusline-capture.sh" <<<"$empty_model_payload" >/dev/null
+assert_cmd "jq -e '.session_id == \"cap-empty-model\" and .model == \"\"' \"$cap_dir/cap-empty-model.json\"" 'statusline wrapper preserves an empty model string'
+before_empty_session=$(find "$cap_dir" -type f | wc -l | tr -d ' ')
+empty_session_payload='{"conversation_id":"","model":"Gemini","context_window":{"current_usage":{"input_tokens":10,"cache_read_input_tokens":5,"cache_creation_input_tokens":0}}}'
+bash "$ROOT/scripts/agy-statusline-capture.sh" <<<"$empty_session_payload" >/dev/null
+after_empty_session=$(find "$cap_dir" -type f | wc -l | tr -d ' ')
+assert_eq "$after_empty_session" "$before_empty_session" 'statusline wrapper preserves and rejects an empty session identity'
+
+# Installer preserves existing statuslines, is idempotent, and fails closed.
+install_dir="$TMP/agy-install-regular"
+mkdir -p "$install_dir"
+printf '%s\n' 'ORIGINAL_STATUSLINE' >"$install_dir/statusline.sh"
+AGY_CLI_CONFIG_DIR="$install_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null
+assert_cmd "[[ -L \"$install_dir/statusline.sh\" ]] && grep -qx ORIGINAL_STATUSLINE \"$install_dir/statusline.real.sh\"" 'installer preserves a regular statusline as statusline.real.sh'
+AGY_CLI_CONFIG_DIR="$install_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null
+assert_cmd "[[ -L \"$install_dir/statusline.sh\" ]] && grep -qx ORIGINAL_STATUSLINE \"$install_dir/statusline.real.sh\"" 'installer reinstall is idempotent'
+if AGY_CLI_CONFIG_DIR="$TMP/relative-install" bash "$ROOT/scripts/install-agy-statusline.sh" relative/path >/dev/null 2>&1; then
+  not_ok 'installer rejects a relative clone path'
+else
+  ok 'installer rejects a relative clone path'
+fi
+
+install_symlink_dir="$TMP/agy-install-symlink"
+mkdir -p "$install_symlink_dir"
+printf '%s\n' 'LINK_TARGET' >"$install_symlink_dir/original.sh"
+ln -s "$install_symlink_dir/original.sh" "$install_symlink_dir/statusline.sh"
+AGY_CLI_CONFIG_DIR="$install_symlink_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null
+preserved_target=$(readlink "$install_symlink_dir/statusline.real.sh")
+assert_cmd "[[ -L \"$install_symlink_dir/statusline.real.sh\" && \"$preserved_target\" == \"$install_symlink_dir/original.sh\" ]]" 'installer preserves an existing statusline symlink'
+
+install_backup_dir="$TMP/agy-install-backup"
+mkdir -p "$install_backup_dir"
+printf '%s\n' 'CURRENT' >"$install_backup_dir/statusline.sh"
+printf '%s\n' 'BACKUP' >"$install_backup_dir/statusline.real.sh"
+if AGY_CLI_CONFIG_DIR="$install_backup_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null 2>&1; then
+  not_ok 'installer refuses an existing backup'
+else
+  ok 'installer refuses an existing backup'
+fi
+assert_cmd "grep -qx CURRENT \"$install_backup_dir/statusline.sh\" && grep -qx BACKUP \"$install_backup_dir/statusline.real.sh\"" 'backup refusal leaves both files unchanged'
+
+# 8. Stale cache regression: session A -> session B in same focused pane
+init_state
+now=$(date +%s)
+last_reported="" last_deadline=""
+report_pane() { last_reported="$3"; last_deadline="${10:-}"; }
+clear_pane() { last_reported="CLEARED"; last_deadline=""; }
+
+# Session A has hot cache state in paneRestart
+sig_a="codex|sess-A|m1|p1|1000|800|0|0|0"
+jq -n --arg sig "$sig_a" --argjson now "$now" \
+  '{active:{agent:"codex",session_id:"sess-A",model:"m1",provider:"p1",signature:$sig,hit_at:($now-60),deadline:($now+240),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' \
+  >"$(state_path paneRestart)"
+
+# Session B starts — same pane, same agent, different session_id, no usage yet
+codex_usage() { return 1; }
+update_pane paneRestart codex sess-B
+assert_cmd '[[ "$(jq -r ".active" "$(state_path paneRestart)")" == "null" ]]' \
+  'stale cache: session A state cleared when session B has no usage'
+
+# Session B produces its first usage
+codex_usage() { printf 'codex\tsess-B\t%s\t500\t300\t0\t0\t0\tm2\tp2\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
+update_pane paneRestart codex sess-B
+assert_cmd '[[ "$(jq -r ".active.session_id" "$(state_path paneRestart)")" == "sess-B" ]]' \
+  'stale cache: session B metrics appear after first usage'
+assert_cmd '[[ "$(jq -r ".active.read" "$(state_path paneRestart)")" == "300" ]]' \
+  'stale cache: session B counters are correct'
+unset -f codex_usage
+
+# 9. Complete same-pane restart through watch_main and timer lifecycle.
+restart_reports="$TMP/restart-reports"
+restart_panes="$TMP/restart-panes.json"
+restart_a="$CODEX_SESSIONS_DIR/2026/09/06/rollout-restart-A.jsonl"
+restart_b="$CODEX_SESSIONS_DIR/2026/09/06/rollout-restart-B.jsonl"
+restart_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '%s\n' '{"type":"session_meta","payload":{"id":"restart-A","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$restart_ts\",\"payload\":{\"usage\":{\"input_tokens\":1000,\"cached_input_tokens\":800},\"model\":\"model-A\",\"model_provider\":\"provider-A\"}}" >"$restart_a"
+rm -f "$ROLLOUT_INDEX"
+printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"restart-A"}}]}}' >"$restart_panes"
+env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+timer_a=$(cat "$TIMER_PID_FILE")
+assert_cmd "kill -0 \"$timer_a\" 2>/dev/null" 'active cache schedules one rescan timer'
+
+printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$restart_panes"
+env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main clears session A state when identity disappears'
+assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! kill -0 \"$timer_a\" 2>/dev/null" 'cold rescan cancels periodic work'
+
+printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"restart-B"}}]}}' >"$restart_panes"
+env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main keeps replacement session cold before its first record'
+
+printf '%s\n' '{"type":"session_meta","payload":{"id":"restart-B","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$restart_ts\",\"payload\":{\"usage\":{\"input_tokens\":500,\"cached_input_tokens\":300},\"model\":\"model-B\",\"model_provider\":\"provider-B\"}}" >"$restart_b"
+rm -f "$ROLLOUT_INDEX"
+env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "jq -e '.active.session_id == \"restart-B\" and .active.read == 300 and .active.model == \"model-B\"' \"$(state_path paneRestartWatch)\"" 'watch_main displays only session B data after its first record'
+timer_b=$(cat "$TIMER_PID_FILE")
+assert_eq "$(next_wake_delay 1 '')" "15" 'active cache rescan delay is capped at 15 seconds'
+assert_eq "$(next_wake_delay 1 5)" "5" 'expiration transition preempts the 15-second rescan interval'
+assert_eq "$(next_wake_delay 0 5 || true)" "" 'cold caches request no wake delay'
+env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+timer_c=$(cat "$TIMER_PID_FILE")
+assert_cmd "[[ \"$timer_b\" != \"$timer_c\" ]] && ! kill -0 \"$timer_b\" 2>/dev/null && kill -0 \"$timer_c\" 2>/dev/null" 'successive active rescans retain at most one timer'
+printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$restart_panes"
+env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! kill -0 \"$timer_c\" 2>/dev/null" 'no timer remains when every cache is cold'
+
+# 10. Download helper validation and replacement tests.
+dummy_bin_dir="$TMP/dummy_bin"
+download_dir="$TMP/downloads"
+fake_tools="$TMP/fake-download-tools"
+mkdir -p "$dummy_bin_dir" "$download_dir" "$fake_tools"
+dl_name="agy-usage-darwin-arm64"
+dummy_file="$dummy_bin_dir/$dl_name"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/usr/bin/env bash' 'case "$1" in -s) echo Darwin ;; -m) echo arm64 ;; *) exit 1 ;; esac' >"$fake_tools/uname"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/usr/bin/env bash' 'url=""; out=""; while [[ $# -gt 0 ]]; do case "$1" in -o) out=$2; shift 2 ;; -*) shift ;; *) url=$1; shift ;; esac; done; src="$FAKE_DOWNLOADS/${url##*/}"; [[ -f "$src" ]] || exit 22; cp "$src" "$out"' >"$fake_tools/curl"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/usr/bin/env bash' '[[ "$1" == -b ]] || exit 1; printf "%s\n" "$FAKE_FILE_TYPE"' >"$fake_tools/file"
+chmod +x "$fake_tools/uname" "$fake_tools/curl" "$fake_tools/file"
+
+run_download_failure() {
+  local label=$1
+  printf '%s\n' 'EXISTING_HELPER' >"$dummy_file"
+  if PATH="$fake_tools:$PATH" FAKE_DOWNLOADS="$download_dir" FAKE_FILE_TYPE="$FAKE_FILE_TYPE" HERDR_CACHE_BIN_DIR="$dummy_bin_dir" HERDR_CACHE_HELPER_VERSION="0.1.0" bash "$ROOT/scripts/download-helpers.sh" >/dev/null 2>&1; then
+    not_ok "$label"
+  else
+    ok "$label"
+  fi
+  assert_eq "$(<"$dummy_file")" "EXISTING_HELPER" "$label preserves the old helper"
+  assert_cmd "! find \"$dummy_bin_dir\" -maxdepth 1 -name '.*.tmp.*' -o -name '.checksums.tmp.*' | grep -q ." "$label cleans temporary downloads"
+}
+
+printf '%s\n' 'NEW_HELPER' >"$download_dir/$dl_name"
+FAKE_FILE_TYPE='Mach-O 64-bit executable arm64'
+rm -f "$download_dir/checksums.txt"
+run_download_failure 'missing checksums fail closed'
+printf '%s\n' "bad $dl_name" >"$download_dir/checksums.txt"
+run_download_failure 'malformed checksum entry fails closed'
+good_sum=$(shasum -a 256 "$download_dir/$dl_name" | awk '{print $1}')
+printf '%s  %s\n%s  %s\n' "$good_sum" "$dl_name" "$good_sum" "$dl_name" >"$download_dir/checksums.txt"
+run_download_failure 'duplicate checksum entries fail closed'
+printf '%064d  %s\n' 0 "$dl_name" >"$download_dir/checksums.txt"
+run_download_failure 'checksum mismatch fails closed'
+printf '%s  %s\n' "$good_sum" "$dl_name" >"$download_dir/checksums.txt"
+FAKE_FILE_TYPE='HTML document, ASCII text'
+run_download_failure 'wrong executable format fails closed'
+FAKE_FILE_TYPE='Mach-O 64-bit executable x86_64'
+run_download_failure 'wrong executable architecture fails closed'
+
+FAKE_FILE_TYPE='Mach-O 64-bit executable arm64'
+printf '%s\n' 'EXISTING_HELPER' >"$dummy_file"
+if PATH="$fake_tools:$PATH" FAKE_DOWNLOADS="$download_dir" FAKE_FILE_TYPE="$FAKE_FILE_TYPE" HERDR_CACHE_BIN_DIR="$dummy_bin_dir" HERDR_CACHE_HELPER_VERSION="0.1.0" bash "$ROOT/scripts/download-helpers.sh" >/dev/null 2>&1; then
+  ok 'verified helper replaces the old binary'
+else
+  not_ok 'verified helper replaces the old binary'
+fi
+assert_eq "$(<"$dummy_file")" "NEW_HELPER" 'successful verified replacement installs downloaded helper'
+assert_cmd "[[ -x \"$dummy_file\" ]]" 'successful verified replacement is executable'
+assert_cmd "! find \"$dummy_bin_dir\" -maxdepth 1 -name '.*.tmp.*' -o -name '.checksums.tmp.*' | grep -q ." 'successful replacement cleans temporary downloads'
+
+exit "$fail"

@@ -1,5 +1,6 @@
 // Command agy-usage reads the AGY conversation database without requiring AGY,
-// Python, protoc, or CGO at runtime.
+// Python, protoc, or CGO at runtime. Content is processed locally only as
+// necessary to extract usage metadata and is not extracted, retained, or transmitted.
 package main
 
 import (
@@ -17,10 +18,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// These paths are from captured AGY step_payload records (step 5 is the
+// These paths describe the current AGY step_payload mapping (step 5 is the
 // serialized step; 9 is the model response envelope; 33 is the usage message).
-// The four counters are the fields in AGY's persisted usage message. Keep this
-// mapping local and review it against a new captured payload when AGY changes.
+// The schema-derived fixture is synthetic, so review this mapping against a
+// sanitized captured payload when one becomes independently available.
 var (
 	usageMessagePath = []int{5, 9, 33}
 	inputField       = 1
@@ -177,7 +178,20 @@ func decodePayload(payload []byte) (result, error) {
 	return result{InputTokens: in, CacheRead: read, CacheCreation: write, Model: textAt(payload, []int{5, 9, 7}), Provider: textAt(payload, []int{5, 9, 8})}, nil
 }
 
-func dbURI(path string) string { return "file:" + filepath.Clean(path) + "?mode=ro&_busy_timeout=750" }
+func dbURI(path string) string {
+	cleaned := filepath.Clean(path)
+	// Encode characters that SQLite URI parsing would misinterpret (# ? %).
+	var encoded strings.Builder
+	for _, b := range []byte(cleaned) {
+		switch {
+		case b == '#' || b == '?' || b == '%':
+			fmt.Fprintf(&encoded, "%%%02X", b)
+		default:
+			encoded.WriteByte(b)
+		}
+	}
+	return "file:" + encoded.String() + "?mode=ro&_busy_timeout=750"
+}
 
 func readDB(path, session string) (result, error) {
 	if path == "" || session == "" {
