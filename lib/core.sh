@@ -96,6 +96,20 @@ fmt_clock() {
     date -d "@$1" +%H:%M 2>/dev/null || date -r "$1" +%H:%M 2>/dev/null
   fi
 }
+to_bold_digits() {
+  local s=$1
+  local map=("𝟬" "𝟭" "𝟮" "𝟯" "𝟰" "𝟱" "𝟲" "𝟳" "𝟴" "𝟵")
+  local out="" i ch
+  for (( i=0; i<${#s}; i++ )); do
+    ch="${s:i:1}"
+    if [[ "$ch" =~ [0-9] ]]; then
+      out+="${map[ch]}"
+    else
+      out+="$ch"
+    fi
+  done
+  printf '%s' "$out"
+}
 report_pane() {
   local pane=$1 agent=$2 token_val=$3 ttl_ms=${4:-15000}
   local status_val=${5:-} pct_val=${6:-} tokens_val=${7:-} state_val=${8:-}

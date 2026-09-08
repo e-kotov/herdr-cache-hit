@@ -130,14 +130,22 @@ update_pane() {
   fi
   local deadline pct total
   deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
-  local show_deadline show_read show_write show_percentage show_model read_text write_text model_text deadline_text
+  local show_deadline show_read show_write show_percentage show_model bold_time read_text write_text model_text deadline_text
   show_deadline=$(config_bool "$agent" show_deadline true)
   show_read=$(config_bool "$agent" show_read_tokens true)
   show_write=$(config_bool "$agent" show_write_tokens false)
   show_percentage=$(config_bool "$agent" show_percentage true)
   show_model=$(config_bool "$agent" show_model false)
+  bold_time=$(config_bool "$agent" bold_time true)
   deadline_text=""
-  [[ "$show_deadline" == true && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]] && deadline_text="~$(fmt_clock "$deadline")"
+  if [[ "$show_deadline" == true && "$deadline" =~ ^[0-9]+$ && "$deadline" -gt "$now" ]]; then
+    local raw_clock; raw_clock=$(fmt_clock "$deadline")
+    if [[ "$bold_time" == true ]]; then
+      deadline_text="~$(to_bold_digits "$raw_clock")"
+    else
+      deadline_text="~$raw_clock"
+    fi
+  fi
   read_text=""; write_text=""
   [[ "$show_read" == true ]] && read_text="⇣$(fmt_tokens "$read")"
   [[ "$show_write" == true ]] && write_text="⇡$(fmt_tokens "$write")"
