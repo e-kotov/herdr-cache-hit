@@ -1,0 +1,20 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "Herdr cache-hit"
+  site-url: "https://e-kotov.github.io/herdr-cache-hit/"
+  repo-url: "https://github.com/e-kotov/herdr-cache-hit"
+  open-graph: true
+
+format:
+  closeread-html:
+    theme: default
+    css: styles.css
+    remove-header-space: true
+    toc: false
+    cr-style:
+      narrative-background-color-sidebar: "#f7f2ed"
+      narrative-text-color-sidebar: "#241835"
+      section-background-color: "#eee8e3"
