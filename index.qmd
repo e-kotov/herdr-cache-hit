@@ -3,6 +3,18 @@ description: "Live prompt-cache metrics and expiration-aware agent sorting for H
 lang: en
 ---
 
+```{=html}
+<nav class="site-nav" id="top" aria-label="Primary navigation">
+  <a class="site-nav-brand" href="#top">cache-hit</a>
+  <div class="site-nav-links">
+    <a href="#story">Story</a>
+    <a href="#features">Features</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/e-kotov/herdr-cache-hit">GitHub</a>
+  </div>
+</nav>
+```
+
 ::: {.hero}
 ::: {.eyebrow}
 Cache Hit plugin for [Herdr](https://herdr.dev/)
@@ -20,7 +32,7 @@ Works locally with Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macO
 :::
 
 ::: {.story-intro .column-body}
-## Read the cache at a glance
+## Read the cache at a glance {#story}
 
 One compact sidebar answers the question that matters before you switch agents: which context is still reusable, and which one needs attention now?
 :::
@@ -88,6 +100,23 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("scroll", scheduleUpdate, { passive: true });
   window.addEventListener("resize", scheduleUpdate);
   updateAnnotation();
+
+  const copyButton = document.querySelector(".copy-install");
+  const installCode = document.querySelector(".install-command code");
+  copyButton?.addEventListener("click", async () => {
+    const command = installCode.textContent.replace(/^\$ /gm, "").trim();
+    try {
+      await navigator.clipboard.writeText(command);
+      copyButton.textContent = "Copied";
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(installCode);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+      copyButton.textContent = "Press ⌘C";
+    }
+    window.setTimeout(() => { copyButton.textContent = "Copy"; }, 1600);
+  });
 });
 </script>
 ```
@@ -124,7 +153,7 @@ After expiry, the percentage disappears. The `❄ ⇣tokens` state keeps retaine
 :::
 :::
 
-::: {.features}
+::: {#features .features}
 ## What the plugin shows
 
 ::: {.feature-grid}
@@ -158,7 +187,10 @@ Press `prefix+s` to put the cache closest to expiry at the top of the agents pan
 
 ```{=html}
 <div class="install-card">
-  <div class="install-card-label">Terminal</div>
+  <div class="install-card-header">
+    <div class="install-card-label">Terminal</div>
+    <button class="copy-install" type="button" aria-label="Copy install commands">Copy</button>
+  </div>
   <pre class="install-command"><code><span class="prompt">$</span> git clone https://github.com/e-kotov/herdr-cache-hit.git
 <span class="prompt">$</span> cd herdr-cache-hit
 <span class="prompt">$</span> herdr plugin link .</code></pre>
