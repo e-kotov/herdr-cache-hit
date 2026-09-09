@@ -27,34 +27,60 @@ One compact sidebar answers the question that matters before you switch agents: 
 
 :::: {.desktop-story .cr-section layout="sidebar-left"}
 
-::: {.story-step focus-on="cr-cache-ui" scale-by="1" pan-to="0%,0%"}
-### Active context, without the noise
+::: {.story-step focus-on="cr-cache-ui" scale-by="1.6" pan-to="28%,2%"}
+### The alarm earns attention
 
-The active Codex pane shows its estimated expiry time, cache-hit percentage, and retained read tokens in one line.
+When a cache enters its configurable warning window, the countdown switches to a high-contrast alarm. The expiry-sorted view brings that pane to the top while there is still time to reuse its context.
 :::
 
-::: {.story-step focus-on="cr-cache-ui" scale-by="1.7" pan-to="31%,0%"}
+::: {.story-step focus-on="cr-cache-ui" scale-by="1.9" pan-to="34%,-10%"}
+### Active context, quantified
+
+Healthy panes show an estimated expiry, cache-hit percentage when available, and retained read tokens. The same compact grammar works across AGY, Codex, and Claude.
+:::
+
+::: {.story-step focus-on="cr-cache-ui" scale-by="1.9" pan-to="34%,-30%"}
 ### Cold means cold
 
-After expiry, stale percentages disappear. The `❄ ⇣tokens` state keeps the useful retained-token history without implying that the cache is still available.
-:::
-
-::: {.story-step focus-on="cr-cache-ui" scale-by="1.7" pan-to="31%,18%"}
-### Work the deadline, not the list
-
-The `expiry` view sorts active panes by `cache_deadline`, moving the most urgent context to the top. Toggle it with `prefix+s`; return to native order the same way.
+After expiry, stale percentages disappear. The `❄ ⇣tokens` state preserves useful retained-token history without implying that the cache is still reusable.
 :::
 
 :::{#cr-cache-ui .screenshot-sticky}
-<img src="assets/herdr-cache-sidebar.webp" alt="A Herdr terminal window with a left sidebar listing Codex and Claude agents. The active Codex row shows an expiry countdown, a 99 percent cache-hit ratio, and 201.2 thousand retained tokens; two cold Claude rows show snowflake markers and retained-token counts. The sidebar is sorted by expiry." width="2400" height="1602" fetchpriority="high">
+<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar containing AGY, Codex, and Claude agents. The first AGY row has a red alarm countdown and 154.8 thousand retained tokens; active Codex and Claude rows show healthy countdowns and token metrics; two cold Claude rows show snowflake markers and retained-token counts." width="1987" height="1161" fetchpriority="high">
 :::
 
 ::::
 
 ::: {.mobile-story}
-<img src="assets/herdr-cache-sidebar.webp" alt="A Herdr terminal window with a left sidebar listing Codex and Claude agents. The active Codex row shows an expiry countdown, a 99 percent cache-hit ratio, and 201.2 thousand retained tokens; two cold Claude rows show snowflake markers and retained-token counts. The sidebar is sorted by expiry." width="2400" height="1602">
+::: {.mobile-focus-card}
+::: {.mobile-crop .crop-alarm}
+<img src="assets/herdr-expiry-agents.webp" alt="Close-up of the expiry-sorted Herdr sidebar. The AGY row at the top shows a red alarm countdown and 154.8 thousand retained tokens." width="1987" height="1161">
+:::
 
-The sidebar distinguishes active cache metrics from the cold `❄ ⇣tokens` state and can sort panes by the nearest expiry.
+### The alarm earns attention
+
+The warning state rises to the top before its reusable context expires.
+:::
+
+::: {.mobile-focus-card}
+::: {.mobile-crop .crop-active}
+<img src="assets/herdr-expiry-agents.webp" alt="Close-up of active Codex and Claude rows in Herdr, showing healthy expiry countdowns, a cache-hit percentage, and retained-token metrics." width="1987" height="1161" loading="lazy">
+:::
+
+### Active context, quantified
+
+Healthy panes retain the metrics needed to choose the next agent.
+:::
+
+::: {.mobile-focus-card}
+::: {.mobile-crop .crop-cold}
+<img src="assets/herdr-expiry-agents.webp" alt="Close-up of cold Claude rows in Herdr, each marked with a snowflake and a retained-token count but no stale cache-hit percentage." width="1987" height="1161" loading="lazy">
+:::
+
+### Cold means cold
+
+Expired panes keep retained-token history without suggesting that their cache is reusable.
+:::
 :::
 
 ::: {.features}
@@ -80,28 +106,27 @@ Declarative tokens and `cache_deadline` integrate with Herdr styling and sorting
 :::
 :::
 
-::: {.compatibility-shot}
-<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar containing AGY, Codex, and Claude agents. The first AGY row has a red alarm countdown and retained-token count; the Codex and Claude rows beneath it show healthy countdowns and token metrics." width="1987" height="1161" loading="lazy">
-
-One expiry-ordered view across AGY, Codex, and Claude panes.
-:::
-
 ::: {.compatibility}
 **Compatibility:** macOS and Linux; Windows through WSL2. `jq` and Bash are required. Python is needed only for OpenCode monitoring or view toggling; Go is needed only to build the optional AGY helper from source.
 :::
 :::
 
-::: {#install .install}
-## Install
+::: {.install}
+::: {.install-inner}
+## Install {#install}
 
-```bash
-git clone https://github.com/e-kotov/herdr-cache-hit.git
-cd herdr-cache-hit
-herdr plugin link .
+```{=html}
+<div class="install-card">
+  <div class="install-card-label">Terminal</div>
+  <pre class="install-command"><code><span class="prompt">$</span> git clone https://github.com/e-kotov/herdr-cache-hit.git
+<span class="prompt">$</span> cd herdr-cache-hit
+<span class="prompt">$</span> herdr plugin link .</code></pre>
+</div>
 ```
 
 ::: {.install-links}
 [User guide](https://github.com/e-kotov/herdr-cache-hit/blob/main/USERGUIDE.md) · [GitHub repository](https://github.com/e-kotov/herdr-cache-hit) · [Releases](https://github.com/e-kotov/herdr-cache-hit/releases) · [MIT license](https://github.com/e-kotov/herdr-cache-hit/blob/main/LICENSE)
+:::
 :::
 :::
 

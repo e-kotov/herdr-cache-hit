@@ -68,7 +68,7 @@ a:focus-visible {
   margin: 0.2rem 0 1.2rem;
   font-size: clamp(3rem, 8vw, 7.5rem);
   line-height: 0.96;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.02em;
   color: var(--ink);
 }
 
@@ -154,11 +154,13 @@ a:focus-visible {
 }
 
 .screenshot-sticky img,
-.mobile-story img,
-.compatibility-shot img {
+.mobile-crop img {
   display: block;
-  width: 100%;
   height: auto;
+}
+
+.screenshot-sticky img {
+  width: 100%;
   border: 1px solid rgba(36, 24, 53, 0.14);
   border-radius: 0.7rem;
   box-shadow: 0 24px 70px rgba(36, 24, 53, 0.17);
@@ -191,17 +193,6 @@ a:focus-visible {
   font-size: 1.15rem;
 }
 
-.compatibility-shot {
-  max-width: 1040px;
-  margin: 5rem auto 2rem;
-}
-
-.compatibility-shot p {
-  margin-top: 1rem;
-  color: var(--muted);
-  text-align: center;
-}
-
 .compatibility {
   max-width: 900px;
   margin: 2.5rem auto 0;
@@ -211,14 +202,17 @@ a:focus-visible {
 }
 
 .install {
+  display: block !important;
   padding-block: clamp(5rem, 10vw, 8rem);
   color: #f9f5f1;
   background: var(--ink);
-}
-
-.install {
   max-width: none;
   padding-inline: max(clamp(1.25rem, 5vw, 4rem), calc((100vw - 1050px) / 2));
+}
+
+.install-inner {
+  width: min(100%, 900px);
+  margin-inline: auto;
 }
 
 .install h2,
@@ -226,14 +220,47 @@ a:focus-visible {
   color: #fff;
 }
 
-.install pre {
+.install-card {
   margin-block: 2rem;
-  padding: 1.4rem;
+  overflow: hidden;
   overflow-x: auto;
   border: 1px solid #594b69;
-  border-radius: 0.5rem;
+  border-radius: 0.65rem;
+  background: #1d1428;
+  box-shadow: 0 18px 55px rgba(10, 6, 17, 0.28);
+}
+
+.install-card-label {
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid #594b69;
+  color: #c9bfd1;
+  background: #30223f;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.install pre.install-command {
+  margin: 0;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  border: 0;
+  border-radius: 0;
   color: #f9f5f1;
   background: #1d1428;
+  font-size: clamp(0.78rem, 1.7vw, 1rem);
+  line-height: 1.8;
+}
+
+.install-command code {
+  padding: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.install-command .prompt {
+  color: #8eb5ff;
+  user-select: none;
 }
 
 .install-links {
@@ -251,6 +278,49 @@ a:focus-visible {
   padding-block: 1rem 5rem;
 }
 
+.mobile-focus-card {
+  margin-bottom: 3.5rem;
+}
+
+.mobile-focus-card h3 {
+  margin: 1.1rem 0 0.45rem;
+  font-size: 1.35rem;
+}
+
+.mobile-focus-card p {
+  color: var(--muted);
+}
+
+.mobile-crop {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid rgba(36, 24, 53, 0.14);
+  border-radius: 0.65rem;
+  background: var(--paper-deep);
+  box-shadow: 0 16px 42px rgba(36, 24, 53, 0.14);
+}
+
+.mobile-crop img {
+  position: absolute;
+  left: 0;
+  width: 380%;
+  max-width: none;
+}
+
+.crop-alarm img {
+  top: -76%;
+}
+
+.crop-active img {
+  top: -102%;
+}
+
+.crop-cold img {
+  top: -158%;
+}
+
 @media (max-width: 800px) {
   .desktop-story {
     display: none !important;
@@ -266,6 +336,14 @@ a:focus-visible {
 
   .hero {
     min-height: auto;
+  }
+
+  .hero h1 {
+    letter-spacing: -0.01em;
+  }
+
+  .install {
+    padding-inline: 1.25rem;
   }
 }
 
