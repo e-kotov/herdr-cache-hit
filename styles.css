@@ -170,6 +170,39 @@ a:focus-visible {
   width: min(76vw, 1100px);
 }
 
+.screenshot-frame {
+  position: relative;
+}
+
+.focus-rect {
+  position: absolute;
+  pointer-events: none;
+  border: 3px solid #fff;
+  border-radius: 0.35rem;
+  box-shadow: 0 0 0 3px var(--blue), 0 0 28px rgba(40, 101, 232, 0.65);
+}
+
+.annotation-alarm .focus-rect {
+  top: 37.5%;
+  left: 4.4%;
+  width: 15.3%;
+  height: 10.5%;
+}
+
+.annotation-active .focus-rect {
+  top: 49%;
+  left: 4.4%;
+  width: 15.3%;
+  height: 18.5%;
+}
+
+.annotation-cold .focus-rect {
+  top: 69.5%;
+  left: 4.4%;
+  width: 15.3%;
+  height: 22.5%;
+}
+
 .features {
   padding-block: clamp(5rem, 10vw, 8rem);
 }
@@ -207,11 +240,11 @@ a:focus-visible {
   color: #f9f5f1;
   background: var(--ink);
   max-width: none;
-  padding-inline: max(clamp(1.25rem, 5vw, 4rem), calc((100vw - 1050px) / 2));
+  padding-inline: clamp(1.25rem, 5vw, 4rem);
 }
 
 .install-inner {
-  width: min(100%, 900px);
+  width: min(100%, 1000px);
   margin-inline: auto;
 }
 
@@ -307,6 +340,36 @@ a:focus-visible {
   left: 0;
   width: 380%;
   max-width: none;
+}
+
+.mobile-crop::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid #fff;
+  border-radius: 0.3rem;
+  box-shadow: 0 0 0 3px var(--blue), 0 0 22px rgba(40, 101, 232, 0.6);
+}
+
+.crop-alarm::after {
+  top: 31%;
+  left: 15%;
+  width: 59%;
+  height: 25%;
+}
+
+.crop-active::after {
+  top: 31%;
+  left: 15%;
+  width: 59%;
+  height: 49%;
+}
+
+.crop-cold::after {
+  top: 40%;
+  left: 15%;
+  width: 59%;
+  height: 50%;
 }
 
 .crop-alarm img {

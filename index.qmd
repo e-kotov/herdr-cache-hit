@@ -27,26 +27,43 @@ One compact sidebar answers the question that matters before you switch agents: 
 
 :::: {.desktop-story .cr-section layout="sidebar-left"}
 
-::: {.story-step focus-on="cr-cache-ui" scale-by="1.6" pan-to="28%,2%"}
-### The alarm earns attention
+::: {.story-step focus-on="cr-alarm" scale-by="1.6" pan-to="28%,2%"}
+### Alarm icon shows when cache is about to expire
 
-When a cache enters its configurable warning window, the countdown switches to a high-contrast alarm. The expiry-sorted view brings that pane to the top while there is still time to reuse its context.
+When a cache is about to expire, the custom `expiry` sort view pushes its agent to the top. A configurable alarm icon appears, and the countdown becomes bolder.
 :::
 
-::: {.story-step focus-on="cr-cache-ui" scale-by="1.9" pan-to="34%,-10%"}
-### Active context, quantified
+::: {.story-step focus-on="cr-active" scale-by="1.9" pan-to="34%,-10%"}
+### Active caches show remaining time and retained tokens
 
-Healthy panes show an estimated expiry, cache-hit percentage when available, and retained read tokens. The same compact grammar works across AGY, Codex, and Claude.
+Active agents show time to expiry, cache-hit percentage when available, and retained read tokens. The same indicators work across AGY, Codex, and Claude.
 :::
 
-::: {.story-step focus-on="cr-cache-ui" scale-by="1.9" pan-to="34%,-30%"}
-### Cold means cold
+::: {.story-step focus-on="cr-cold" scale-by="1.9" pan-to="34%,-30%"}
+### Cold caches keep token history, not stale percentages
 
-After expiry, stale percentages disappear. The `❄ ⇣tokens` state preserves useful retained-token history without implying that the cache is still reusable.
+After expiry, the percentage disappears. The `❄ ⇣tokens` state keeps retained-token history without implying that the cache is reusable.
 :::
 
-:::{#cr-cache-ui .screenshot-sticky}
-<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar containing AGY, Codex, and Claude agents. The first AGY row has a red alarm countdown and 154.8 thousand retained tokens; active Codex and Claude rows show healthy countdowns and token metrics; two cold Claude rows show snowflake markers and retained-token counts." width="1987" height="1161" fetchpriority="high">
+:::{#cr-alarm .screenshot-sticky}
+::: {.screenshot-frame .annotation-alarm}
+<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar. A rectangle highlights the AGY row at the top, where an alarm icon and bold countdown show that its cache is about to expire." width="1987" height="1161" fetchpriority="high">
+<span class="focus-rect" aria-hidden="true"></span>
+:::
+:::
+
+:::{#cr-active .screenshot-sticky}
+::: {.screenshot-frame .annotation-active}
+<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar. A rectangle highlights active Codex and Claude rows showing expiry countdowns, cache-hit percentages, and retained-token counts." width="1987" height="1161">
+<span class="focus-rect" aria-hidden="true"></span>
+:::
+:::
+
+:::{#cr-cold .screenshot-sticky}
+::: {.screenshot-frame .annotation-cold}
+<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar. A rectangle highlights cold Claude rows marked with a snowflake and retained-token counts but no cache-hit percentage." width="1987" height="1161">
+<span class="focus-rect" aria-hidden="true"></span>
+:::
 :::
 
 ::::
@@ -57,9 +74,9 @@ After expiry, stale percentages disappear. The `❄ ⇣tokens` state preserves u
 <img src="assets/herdr-expiry-agents.webp" alt="Close-up of the expiry-sorted Herdr sidebar. The AGY row at the top shows a red alarm countdown and 154.8 thousand retained tokens." width="1987" height="1161">
 :::
 
-### The alarm earns attention
+### Alarm icon shows when cache is about to expire
 
-The warning state rises to the top before its reusable context expires.
+The `expiry` sort view pushes the agent to the top. A configurable alarm icon appears, and the countdown becomes bolder.
 :::
 
 ::: {.mobile-focus-card}
@@ -67,9 +84,9 @@ The warning state rises to the top before its reusable context expires.
 <img src="assets/herdr-expiry-agents.webp" alt="Close-up of active Codex and Claude rows in Herdr, showing healthy expiry countdowns, a cache-hit percentage, and retained-token metrics." width="1987" height="1161" loading="lazy">
 :::
 
-### Active context, quantified
+### Active caches show remaining time and retained tokens
 
-Healthy panes retain the metrics needed to choose the next agent.
+Active agents show time to expiry, cache-hit percentage when available, and retained read tokens.
 :::
 
 ::: {.mobile-focus-card}
@@ -77,30 +94,30 @@ Healthy panes retain the metrics needed to choose the next agent.
 <img src="assets/herdr-expiry-agents.webp" alt="Close-up of cold Claude rows in Herdr, each marked with a snowflake and a retained-token count but no stale cache-hit percentage." width="1987" height="1161" loading="lazy">
 :::
 
-### Cold means cold
+### Cold caches keep token history, not stale percentages
 
-Expired panes keep retained-token history without suggesting that their cache is reusable.
+After expiry, the percentage disappears. The `❄ ⇣tokens` state keeps retained-token history without implying that the cache is reusable.
 :::
 :::
 
 ::: {.features}
-## Small surface, useful signals
+## What the plugin shows
 
 ::: {.feature-grid}
 ::: {.feature-card}
-### Live cache health
+### Cache metrics update live
 
 Event hooks update immediately, while one bounded wake timer keeps active countdowns current. Cold installations schedule no periodic work.
 :::
 
 ::: {.feature-card}
-### Honest state transitions
+### Expired caches drop stale percentages
 
 Healthy, urgent, and cold states use distinct symbols and colors. Expired percentages are cleared because they no longer describe reusable context.
 :::
 
 ::: {.feature-card}
-### Native Herdr controls
+### Sort agents by cache expiry
 
 Declarative tokens and `cache_deadline` integrate with Herdr styling and sorting. There is no dashboard, account, analytics service, or network telemetry.
 :::
