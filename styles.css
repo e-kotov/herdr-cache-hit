@@ -177,26 +177,34 @@ a:focus-visible {
 .focus-rect {
   position: absolute;
   pointer-events: none;
+  opacity: 0;
   border: 3px solid #fff;
   border-radius: 0.35rem;
   box-shadow: 0 0 0 3px var(--blue), 0 0 28px rgba(40, 101, 232, 0.65);
+  transition: opacity 0.18s linear;
 }
 
-.annotation-alarm .focus-rect {
+.screenshot-frame[data-annotation="alarm"] .annotation-alarm,
+.screenshot-frame[data-annotation="active"] .annotation-active,
+.screenshot-frame[data-annotation="cold"] .annotation-cold {
+  opacity: 1;
+}
+
+.focus-rect.annotation-alarm {
   top: 38.8%;
   left: 3%;
   width: 16.2%;
   height: 10.1%;
 }
 
-.annotation-active .focus-rect {
+.focus-rect.annotation-active {
   top: 47.8%;
   left: 3.3%;
   width: 16.2%;
   height: 15.3%;
 }
 
-.annotation-cold .focus-rect {
+.focus-rect.annotation-cold {
   top: 67.2%;
   left: 3.3%;
   width: 16.2%;

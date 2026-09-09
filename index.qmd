@@ -5,18 +5,18 @@ lang: en
 
 ::: {.hero}
 ::: {.eyebrow}
-Herdr plugin · v0.1.1
+Cache Hit plugin for [Herdr](https://herdr.dev/)
 :::
 
 # Keep the warm context warm.
 
-`cache-hit` gives [Herdr](https://github.com/herdrdev/herdr) a quiet, real-time view of prompt-cache health: hit ratios, retained tokens, expiration countdowns, and deadline-aware agent sorting.
+`cache-hit` gives [Herdr](https://herdr.dev/) a real-time view of prompt-cache health: hit ratios, retained tokens, expiration countdowns, and deadline-aware agent sorting.
 
 ::: {.hero-actions}
 [Install the plugin](#install){.button .button-primary} [View on GitHub](https://github.com/e-kotov/herdr-cache-hit){.button .button-secondary}
 :::
 
-Works locally with Codex CLI, Claude Code, OpenCode, and AGY on macOS and Linux.
+Works locally with Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macOS and Linux.
 :::
 
 ::: {.story-intro .column-body}
@@ -27,51 +27,75 @@ One compact sidebar answers the question that matters before you switch agents: 
 
 :::: {.desktop-story .cr-section layout="sidebar-left"}
 
-::: {.story-step focus-on="cr-alarm" scale-by="1.6" pan-to="28%,2%"}
+::: {.story-step .step-alarm focus-on="cr-cache-ui" scale-by="1.6" pan-to="28%,2%"}
 ### Alarm icon shows when cache is about to expire
 
 When a cache is about to expire, the custom `expiry` sort view pushes its agent to the top. A configurable alarm icon appears, and the countdown becomes bolder.
 :::
 
-::: {.story-step focus-on="cr-active" scale-by="1.9" pan-to="34%,-10%"}
+::: {.story-step .step-active focus-on="cr-cache-ui" scale-by="1.9" pan-to="34%,-10%"}
 ### Active caches show remaining time and retained tokens
 
-Active agents show time to expiry, cache-hit percentage when available, and retained read tokens. The same indicators work across AGY, Codex, and Claude.
+Active agents show time to expiry, cache-hit percentage when available, and retained read tokens. The same indicators work across Antigravity CLI, Codex, and Claude.
 :::
 
-::: {.story-step focus-on="cr-cold" scale-by="1.9" pan-to="34%,-30%"}
+::: {.story-step .step-cold focus-on="cr-cache-ui" scale-by="1.9" pan-to="34%,-30%"}
 ### Cold caches keep token history, not stale percentages
 
 After expiry, the percentage disappears. The `❄ ⇣tokens` state keeps retained-token history without implying that the cache is reusable.
 :::
 
-:::{#cr-alarm .screenshot-sticky}
-::: {.screenshot-frame .annotation-alarm}
-<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar. A rectangle highlights the AGY row at the top, where an alarm icon and bold countdown show that its cache is about to expire." width="1987" height="1161" fetchpriority="high">
-<span class="focus-rect" aria-hidden="true"></span>
-:::
-:::
-
-:::{#cr-active .screenshot-sticky}
-::: {.screenshot-frame .annotation-active}
-<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar. A rectangle highlights active Codex and Claude rows showing expiry countdowns, cache-hit percentages, and retained-token counts." width="1987" height="1161">
-<span class="focus-rect" aria-hidden="true"></span>
-:::
-:::
-
-:::{#cr-cold .screenshot-sticky}
-::: {.screenshot-frame .annotation-cold}
-<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar. A rectangle highlights cold Claude rows marked with a snowflake and retained-token counts but no cache-hit percentage." width="1987" height="1161">
-<span class="focus-rect" aria-hidden="true"></span>
+:::{#cr-cache-ui .screenshot-sticky}
+::: {.screenshot-frame data-annotation="alarm"}
+<img src="assets/herdr-expiry-agents.webp" alt="A Herdr terminal window with an expiry-sorted sidebar containing Antigravity CLI, Codex, and Claude agents. The top Antigravity CLI row has an alarm countdown; active Codex and Claude rows show cache metrics; cold Claude rows show snowflakes and retained-token counts." width="1987" height="1161" fetchpriority="high">
+<span class="focus-rect annotation-alarm" aria-hidden="true"></span>
+<span class="focus-rect annotation-active" aria-hidden="true"></span>
+<span class="focus-rect annotation-cold" aria-hidden="true"></span>
 :::
 :::
 
 ::::
 
+```{=html}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const frame = document.querySelector("#cr-cache-ui .screenshot-frame");
+  const steps = ["alarm", "active", "cold"]
+    .map(name => ({ name, element: document.querySelector(`.step-${name}`)?.closest(".trigger") }))
+    .filter(step => step.element);
+
+  if (!frame || steps.length === 0) return;
+
+  let scheduled = false;
+  const updateAnnotation = () => {
+    const midpoint = window.innerHeight / 2;
+    const active = steps.reduce((nearest, step) => {
+      const box = step.element.getBoundingClientRect();
+      const distance = Math.abs(box.top + box.height / 2 - midpoint);
+      return distance < nearest.distance ? { name: step.name, distance } : nearest;
+    }, { name: steps[0].name, distance: Infinity });
+
+    frame.dataset.annotation = active.name;
+    scheduled = false;
+  };
+
+  const scheduleUpdate = () => {
+    if (scheduled) return;
+    scheduled = true;
+    window.requestAnimationFrame(updateAnnotation);
+  };
+
+  window.addEventListener("scroll", scheduleUpdate, { passive: true });
+  window.addEventListener("resize", scheduleUpdate);
+  updateAnnotation();
+});
+</script>
+```
+
 ::: {.mobile-story}
 ::: {.mobile-focus-card}
 ::: {.mobile-crop .crop-alarm}
-<img src="assets/herdr-expiry-agents.webp" alt="Close-up of the expiry-sorted Herdr sidebar. The AGY row at the top shows a red alarm countdown and 154.8 thousand retained tokens." width="1987" height="1161">
+<img src="assets/herdr-expiry-agents.webp" alt="Close-up of the expiry-sorted Herdr sidebar. The Antigravity CLI row at the top shows a red alarm countdown and 154.8 thousand retained tokens." width="1987" height="1161">
 :::
 
 ### Alarm icon shows when cache is about to expire
@@ -105,26 +129,26 @@ After expiry, the percentage disappears. The `❄ ⇣tokens` state keeps retaine
 
 ::: {.feature-grid}
 ::: {.feature-card}
-### Cache metrics update live
+### See active cache metrics
 
-Event hooks update immediately, while one bounded wake timer keeps active countdowns current. Cold installations schedule no periodic work.
+See time to expiry, cache-hit percentage when available, and retained read tokens. The values update while the cache is active.
 :::
 
 ::: {.feature-card}
-### Expired caches drop stale percentages
+### Expired caches show as cold
 
-Healthy, urgent, and cold states use distinct symbols and colors. Expired percentages are cleared because they no longer describe reusable context.
+When a cache expires, its percentage disappears. A snowflake and the retained-token count remain.
 :::
 
 ::: {.feature-card}
-### Sort agents by cache expiry
+### Put expiring caches first
 
-Declarative tokens and `cache_deadline` integrate with Herdr styling and sorting. There is no dashboard, account, analytics service, or network telemetry.
+Press `prefix+s` to put the cache closest to expiry at the top of the agents pane. Press it again to return to the default view.
 :::
 :::
 
 ::: {.compatibility}
-**Compatibility:** macOS and Linux; Windows through WSL2. `jq` and Bash are required. Python is needed only for OpenCode monitoring or view toggling; Go is needed only to build the optional AGY helper from source.
+**Compatibility:** macOS and Linux; Windows through WSL2. `jq` and Bash are required. Python is needed only for OpenCode monitoring or view toggling; Go is needed only to build the optional Antigravity CLI helper from source.
 :::
 :::
 
