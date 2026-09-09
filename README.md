@@ -9,7 +9,7 @@ A high-efficiency plugin for [Herdr](https://github.com/herdrdev/herdr) that pro
 
 Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **Claude Code**, and **OpenCode**.
 
-[![Herdr terminal sidebar showing active and cold prompt-cache metrics sorted by expiry](https://www.ekotov.pro/herdr-cache-hit/assets/herdr-cache-sidebar.webp)](https://www.ekotov.pro/herdr-cache-hit/)
+[![Herdr terminal sidebar showing alarm, active, and cold prompt-cache states sorted by expiry](https://www.ekotov.pro/herdr-cache-hit/assets/herdr-expiry-agents.webp)](https://www.ekotov.pro/herdr-cache-hit/)
 
 ---
 
