@@ -3,9 +3,13 @@
 [![CI](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml/badge.svg)](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+[Website and live showcase](https://www.ekotov.pro/herdr-cache-hit/)
+
 A high-efficiency plugin for [Herdr](https://github.com/herdrdev/herdr) that provides real-time prompt-cache HUD metrics, dynamic expiration countdowns, and declarative cache-deadline agent sorting.
 
 Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **Claude Code**, and **OpenCode**.
+
+[![Herdr terminal sidebar showing active and cold prompt-cache metrics sorted by expiry](https://www.ekotov.pro/herdr-cache-hit/assets/herdr-cache-sidebar.webp)](https://www.ekotov.pro/herdr-cache-hit/)
 
 ---
 
