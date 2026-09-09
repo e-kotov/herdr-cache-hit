@@ -183,24 +183,24 @@ a:focus-visible {
 }
 
 .annotation-alarm .focus-rect {
-  top: 37.5%;
-  left: 4.4%;
-  width: 15.3%;
-  height: 10.5%;
+  top: 38.8%;
+  left: 3%;
+  width: 16.2%;
+  height: 10.1%;
 }
 
 .annotation-active .focus-rect {
-  top: 49%;
-  left: 4.4%;
-  width: 15.3%;
-  height: 18.5%;
+  top: 47.8%;
+  left: 3.3%;
+  width: 16.2%;
+  height: 15.3%;
 }
 
 .annotation-cold .focus-rect {
-  top: 69.5%;
-  left: 4.4%;
-  width: 15.3%;
-  height: 22.5%;
+  top: 67.2%;
+  left: 3.3%;
+  width: 16.2%;
+  height: 17%;
 }
 
 .features {
@@ -352,24 +352,24 @@ a:focus-visible {
 }
 
 .crop-alarm::after {
-  top: 31%;
-  left: 15%;
-  width: 59%;
-  height: 25%;
+  top: 41.6%;
+  left: 12.7%;
+  width: 60.2%;
+  height: 26.5%;
 }
 
 .crop-active::after {
-  top: 31%;
-  left: 15%;
-  width: 59%;
-  height: 49%;
+  top: 39.2%;
+  left: 12.3%;
+  width: 60.2%;
+  height: 45.1%;
 }
 
 .crop-cold::after {
-  top: 40%;
-  left: 15%;
-  width: 59%;
-  height: 50%;
+  top: 43.9%;
+  left: 13.1%;
+  width: 60.2%;
+  height: 47.6%;
 }
 
 .crop-alarm img {
