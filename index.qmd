@@ -4,13 +4,15 @@ lang: en
 ---
 
 ```{=html}
-<nav class="site-nav" id="top" aria-label="Primary navigation">
-  <a class="site-nav-brand" href="#top">cache-hit</a>
-  <div class="site-nav-links">
-    <a href="#story">Story</a>
-    <a href="#features">Features</a>
-    <a href="#install">Install</a>
-    <a href="https://github.com/e-kotov/herdr-cache-hit">GitHub</a>
+<nav class="site-nav column-screen" id="top" aria-label="Primary navigation">
+  <div class="site-nav-inner">
+    <a class="site-nav-brand" href="#top">cache-hit</a>
+    <div class="site-nav-links">
+      <a href="#story">Story</a>
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/e-kotov/herdr-cache-hit">GitHub</a>
+    </div>
   </div>
 </nav>
 ```

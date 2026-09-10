@@ -31,18 +31,26 @@ body {
 }
 
 .site-nav {
+  grid-column: screen-start/screen-end !important;
   position: sticky;
   z-index: 1000;
   top: 0;
+  width: 100%;
+  border-bottom: 1px solid rgba(36, 24, 53, 0.12);
+  background: rgba(247, 242, 237, 0.94);
+  backdrop-filter: blur(12px);
+}
+
+.site-nav-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
   padding: 0.8rem clamp(1.25rem, 5vw, 4rem);
-  border-bottom: 1px solid rgba(36, 24, 53, 0.12);
-  background: rgba(247, 242, 237, 0.94);
-  backdrop-filter: blur(12px);
+  box-sizing: border-box;
 }
 
 .site-nav a {
@@ -459,7 +467,7 @@ a:focus-visible {
 }
 
 @media (max-width: 800px) {
-  .site-nav {
+  .site-nav-inner {
     align-items: flex-start;
   }
 
