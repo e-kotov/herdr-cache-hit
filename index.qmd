@@ -207,7 +207,7 @@ Press `prefix+s` to put the cache closest to expiry at the top of the agents pan
 :::
 
 ::: {.site-footer}
-`cache-hit` is an independent open-source plugin for Herdr. No analytics, external fonts, or executable notebook code are used on this page.
+`cache-hit` is an open-source plugin for Herdr by [Egor Kotov](https://www.ekotov.pro).
 :::
 
 ```{=html}
