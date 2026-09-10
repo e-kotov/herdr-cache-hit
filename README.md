@@ -38,11 +38,23 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **
 
 ### 1. Install Plugin
 
-Clone the repository and link it to Herdr:
+Install directly with Herdr:
+
+```bash
+herdr plugin install e-kotov/herdr-cache-hit
+```
+
+Herdr will automatically clone the repository and run the build step to download and checksum-verify the precompiled helper binary for your platform.
+
+<details>
+<summary>Manual / Development Install</summary>
 
 ```bash
 git clone https://github.com/e-kotov/herdr-cache-hit.git
 cd herdr-cache-hit
+
+# Download precompiled helper binary (or compile locally with ./scripts/build-agy-usage.sh)
+./scripts/download-helpers.sh
 
 # Link to Herdr
 herdr plugin unlink cache-hit 2>/dev/null || true
@@ -50,15 +62,7 @@ herdr plugin link .
 herdr plugin list
 ```
 
-*(Optional — only for AGY users)*: If you monitor Antigravity CLI, download the precompiled SQLite helper binary (or see the [AGY Integration Guide](docs/AGY_INTEGRATION.md) for real-time statusline options):
-
-```bash
-# Download precompiled binary matching the plugin manifest version:
-./scripts/download-helpers.sh
-
-# OR compile locally:
-./scripts/build-agy-usage.sh
-```
+</details>
 
 ### 2. Configure Herdr Sidebar
 

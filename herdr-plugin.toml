@@ -5,6 +5,10 @@ min_herdr_version = "0.9.0"
 description = "Report prompt-cache usage for Herdr Codex, AGY, Claude, and OpenCode panes"
 platforms = ["macos", "linux"]
 
+[[build]]
+platforms = ["macos", "linux"]
+command = ["bash", "scripts/download-helpers.sh"]
+
 [[startup]]
 command = ["bash", "watch.sh"]
 
