@@ -14,6 +14,11 @@ format:
     css: styles.css
     remove-header-space: true
     toc: false
+    include-in-header:
+      text: |
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@800;900&display=swap" rel="stylesheet">
     cr-style:
       narrative-background-color-sidebar: "#f7f2ed"
       narrative-text-color-sidebar: "#241835"

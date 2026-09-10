@@ -33,10 +33,10 @@ body {
 .site-nav {
   grid-column: screen-start/screen-end !important;
   position: sticky;
-  z-index: 1000;
+  z-index: 2000 !important;
   top: 0;
   width: 100%;
-  border-bottom: 1px solid rgba(36, 24, 53, 0.12);
+  border-bottom: 1px solid rgba(36, 24, 53, 0.15);
   background: rgba(247, 242, 237, 0.94);
   backdrop-filter: blur(12px);
 }
@@ -44,7 +44,7 @@ body {
 .site-nav-inner {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 24px;
   height: 60px;
   width: 100%;
   max-width: 1180px;
@@ -56,29 +56,38 @@ body {
 .site-nav-brand {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   text-decoration: none !important;
   color: var(--ink);
 }
 
-.site-nav-brand .brand-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  font-size: 13px;
-  border: 1px solid rgba(36, 24, 53, 0.15);
-  border-radius: 4px;
-  background: rgba(36, 24, 53, 0.04);
+.site-nav-brand .ram {
+  width: 24px;
+  height: 24px;
+  background: currentColor;
+  display: block;
+  -webkit-mask: url("assets/ram.svg") center/contain no-repeat;
+  mask: url("assets/ram.svg") center/contain no-repeat;
 }
 
 .site-nav-brand b {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 1.05rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-family: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -0.045em;
   color: var(--ink);
+}
+
+.site-nav-brand .plugin-pill {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(36, 24, 53, 0.07);
+  color: var(--muted);
+  border: 1px solid rgba(36, 24, 53, 0.12);
 }
 
 .site-nav-sp {
@@ -88,16 +97,16 @@ body {
 .site-nav-links {
   display: flex;
   align-items: center;
-  gap: clamp(12px, 2vw, 20px);
+  gap: 24px;
 }
 
 .site-nav a.nav-lnk {
   color: var(--muted);
   text-decoration: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   transition: color 0.15s ease;
 }
@@ -110,18 +119,18 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  height: 30px;
   flex: 0 0 auto;
   border: 1px solid rgba(36, 24, 53, 0.2);
+  border-radius: 0;
   color: var(--muted);
   text-decoration: none;
-  border-radius: 3px;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .site-nav .nav-ico.wide {
-  gap: 7px;
-  padding: 0 11px;
+  gap: 8px;
+  padding: 0 10px;
 }
 
 .site-nav .nav-ico svg {
@@ -132,8 +141,8 @@ body {
 
 .site-nav .nav-ico b {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-weight: 600;
-  font-size: 0.76rem;
+  font-weight: 400;
+  font-size: 11.5px;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -149,16 +158,16 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
-  padding: 0 14px;
+  height: 30px;
+  padding: 0 15px;
   border: 1px solid rgba(36, 24, 53, 0.25);
-  border-radius: 3px;
+  border-radius: 0;
   color: var(--ink);
   text-decoration: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   background: transparent;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
