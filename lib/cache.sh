@@ -5,7 +5,7 @@ reset_pane_cache() {
   path=$(state_path "$1")
   [[ -s "$path" ]] || return 0
   tmp=$(mktemp "$STATE_DIR/state.XXXXXX") || return 1
-  if jq '.active = null' "$path" >"$tmp" 2>/dev/null; then
+  if jq '.active = null | .last_known = null' "$path" >"$tmp" 2>/dev/null; then
     atomic_install "$tmp" "$path"
   else
     rm -f "$tmp"
@@ -16,7 +16,7 @@ valid_state() { jq -e 'type == "object" and ((.active == null) or ((.active | ty
 load_state() {
   local path=$1 tmp
   if [[ ! -s "$path" ]] || ! valid_state "$path"; then
-    tmp=$(mktemp "$STATE_DIR/state.XXXXXX") || return 1; printf '%s\n' '{"active":null,"observations":[]}' >"$tmp"; atomic_install "$tmp" "$path"
+    tmp=$(mktemp "$STATE_DIR/state.XXXXXX") || return 1; printf '%s\n' '{"active":null,"last_known":null,"observations":[]}' >"$tmp"; atomic_install "$tmp" "$path"
   fi
 }
 model_key() {
@@ -80,6 +80,9 @@ update_pane() {
   prev_deadline=$(jq -r '.active.deadline // 0' "$state" 2>/dev/null || printf 0)
   prev_sig=$(jq -r '.active.signature // ""' "$state" 2>/dev/null || printf "")
   prev_sid=$(jq -r '.active.session_id // ""' "$state" 2>/dev/null || printf "")
+  local last_known_sid last_known_read
+  last_known_sid=$(jq -r '.last_known.session_id // ""' "$state" 2>/dev/null || printf "")
+  last_known_read=$(jq -r '.last_known.read // 0' "$state" 2>/dev/null || printf 0)
 
   if [[ -z "$record" ]]; then
     if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$now" ]]; then
@@ -90,29 +93,40 @@ update_pane() {
       write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
       model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
       provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
+    elif [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" ]]; then
+      input=$(jq -r '.active.input // 0' "$state" 2>/dev/null || printf 0)
+      read=$(jq -r '.active.read // 0' "$state" 2>/dev/null || printf 0)
+      write=$(jq -r '.active.write // 0' "$state" 2>/dev/null || printf 0)
+      write5m=$(jq -r '.active.write5m // 0' "$state" 2>/dev/null || printf 0)
+      write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
+      model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
+      provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
+      jq --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" \
+        --argjson input "$input" --argjson read "$read" --argjson write "$write" \
+        --argjson write5m "$write5m" --argjson write1h "$write1h" '
+        .active = null |
+        .last_known = {agent:$agent, session_id:$sid, model:$model, provider:$provider, input:$input, read:$read, write:$write, write5m:$write5m, write1h:$write1h}
+      ' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+    elif [[ "$last_known_sid" == "$session_id" && "$last_known_read" =~ ^[0-9]+$ && "$last_known_read" -gt 0 ]]; then
+      input=$(jq -r '.last_known.input // 0' "$state" 2>/dev/null || printf 0)
+      read=$(jq -r '.last_known.read // 0' "$state" 2>/dev/null || printf 0)
+      write=$(jq -r '.last_known.write // 0' "$state" 2>/dev/null || printf 0)
+      write5m=$(jq -r '.last_known.write5m // 0' "$state" 2>/dev/null || printf 0)
+      write1h=$(jq -r '.last_known.write1h // 0' "$state" 2>/dev/null || printf 0)
+      model=$(jq -r '.last_known.model // ""' "$state" 2>/dev/null || printf "")
+      provider=$(jq -r '.last_known.provider // ""' "$state" 2>/dev/null || printf "")
     else
-      if [[ "$prev_active" == "true" && "$prev_sid" == "$session_id" ]]; then
-        input=$(jq -r '.active.input // 0' "$state" 2>/dev/null || printf 0)
-        read=$(jq -r '.active.read // 0' "$state" 2>/dev/null || printf 0)
-        write=$(jq -r '.active.write // 0' "$state" 2>/dev/null || printf 0)
-        write5m=$(jq -r '.active.write5m // 0' "$state" 2>/dev/null || printf 0)
-        write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
-        model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
-        provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
-        jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
-      else
-        # Different session or no previous state: clear any stale cached state
-        if [[ "$prev_active" == "true" ]]; then
-          jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
-        fi
-        if [[ "$agent" == agy ]]; then
-          local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "❄")
-          report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
-        else
-          clear_pane "$pane" "$agent"
-        fi
-        return 0
+      # Different session or no previous state: clear any stale cached state
+      if [[ "$prev_active" == "true" || -n "$last_known_sid" ]]; then
+        jq '.active = null | .last_known = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
       fi
+      if [[ "$agent" == agy ]]; then
+        local cold_sym; cold_sym=$(config_str "$agent" cold_symbol "❄")
+        report_pane "$pane" "$agent" "$cold_sym" "$DISPLAY_TTL_MS" "$cold_sym" "" "" "cold" || true
+      else
+        clear_pane "$pane" "$agent"
+      fi
+      return 0
     fi
   else
     local rec_agent rec_sid ts write5m write1h source_path source_deadline
@@ -161,8 +175,23 @@ update_pane() {
           write1h=$(jq -r '.active.write1h // 0' "$state" 2>/dev/null || printf 0)
           model=$(jq -r '.active.model // ""' "$state" 2>/dev/null || printf "")
           provider=$(jq -r '.active.provider // ""' "$state" 2>/dev/null || printf "")
+          jq --arg agent "$agent" --arg sid "$session_id" --arg model "$model" --arg provider "$provider" \
+            --argjson input "$input" --argjson read "$read" --argjson write "$write" \
+            --argjson write5m "$write5m" --argjson write1h "$write1h" '
+            .active = null |
+            .last_known = {agent:$agent, session_id:$sid, model:$model, provider:$provider, input:$input, read:$read, write:$write, write5m:$write5m, write1h:$write1h}
+          ' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
+        elif [[ "$last_known_sid" == "$session_id" && "$last_known_read" =~ ^[0-9]+$ && "$last_known_read" -gt 0 ]]; then
+          input=$(jq -r '.last_known.input // 0' "$state" 2>/dev/null || printf 0)
+          read=$(jq -r '.last_known.read // 0' "$state" 2>/dev/null || printf 0)
+          write=$(jq -r '.last_known.write // 0' "$state" 2>/dev/null || printf 0)
+          write5m=$(jq -r '.last_known.write5m // 0' "$state" 2>/dev/null || printf 0)
+          write1h=$(jq -r '.last_known.write1h // 0' "$state" 2>/dev/null || printf 0)
+          model=$(jq -r '.last_known.model // ""' "$state" 2>/dev/null || printf "")
+          provider=$(jq -r '.last_known.provider // ""' "$state" 2>/dev/null || printf "")
+        else
+          jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
         fi
-        jq '.active = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
       fi
     else
       # Cache hit or write
@@ -181,7 +210,8 @@ update_pane() {
           --argjson at "$record_epoch" --argjson deadline "$new_deadline" \
           --argjson input "$input" --argjson read "$read" --argjson write "$write" \
           --argjson write5m "$write5m" --argjson write1h "$write1h" '
-          .active = {agent:$agent, session_id:$sid, model:$model, provider:$provider, signature:$sig, hit_at:$at, deadline:$deadline, input:$input, read:$read, write:$write, write5m:$write5m, write1h:$write1h}
+          .active = {agent:$agent, session_id:$sid, model:$model, provider:$provider, signature:$sig, hit_at:$at, deadline:$deadline, input:$input, read:$read, write:$write, write5m:$write5m, write1h:$write1h} |
+          .last_known = {agent:$agent, session_id:$sid, model:$model, provider:$provider, input:$input, read:$read, write:$write, write5m:$write5m, write1h:$write1h}
         ' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
       fi
     fi

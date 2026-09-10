@@ -212,7 +212,17 @@ assert_eq "$last_reported" "❄ ⇣800" 'default cold cache places snowflake imm
 assert_eq "$last_pct" "" 'shared cold formatter clears formatted percentage'
 assert_eq "$last_pct_num" "" 'shared cold formatter clears numeric percentage'
 assert_eq "$last_remaining" "" 'shared cold formatter clears remaining seconds'
+
+# Subsequent watch pass while pane remains cold still retains token count
+now_subsequent=$((now_expired + 30))
+now=$now_subsequent update_pane paneSurvive agy agy-survive
+assert_eq "$last_reported" "❄ ⇣800" 'subsequent cold watch pass retains token count instead of reverting to bare snowflake'
+
+# Replacement session in same pane clears old session retained tokens
 unset -f agy_usage
+now=$((now_subsequent + 10)) update_pane paneSurvive agy agy-new-session
+assert_eq "$last_reported" "❄" 'new session without cache starts with bare cold symbol without leaking previous session tokens'
+assert_cmd '[[ "$(jq -r ".last_known" "$(state_path paneSurvive)")" == "null" ]]' 'replacement session clears old last_known state'
 
 # Percentage-enabled agents also suppress percentages while cold.
 codex_usage() { printf 'codex\tsess-cold\t%s\t1000\t0\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }

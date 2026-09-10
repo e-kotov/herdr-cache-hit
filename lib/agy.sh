@@ -139,10 +139,23 @@ agy_usage() {
     printf 'agy\t%s\t%s\t%s\t%s\t%s\t0\t0\t%s\t%s\t%s\t0\n' "$session_id" "$ts" "$input" "$read" "$write" "$model" "$provider" "$(agy_native_db_path "$session_id")"
     return 0
   fi
-  path=$(agy_transcript_path "$session_id" "$supplied") || return 1
-  record=$(agy_latest_usage "$path" "$session_id") || return 1
-  [[ -n "$record" ]] || return 1
-  IFS=$'\t' read -r ts input read write write5m write1h model provider <<<"$record"
-  [[ -n "$provider" ]] || provider=antigravity
-  printf 'agy\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t0\n' "$session_id" "$ts" "$input" "$read" "$write" "$write5m" "$write1h" "$model" "$provider" "$path"
+  if path=$(agy_transcript_path "$session_id" "$supplied") && record=$(agy_latest_usage "$path" "$session_id") && [[ -n "$record" ]]; then
+    IFS=$'\t' read -r ts input read write write5m write1h model provider <<<"$record"
+    [[ -n "$provider" ]] || provider=antigravity
+    printf 'agy\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t0\n' "$session_id" "$ts" "$input" "$read" "$write" "$write5m" "$write1h" "$model" "$provider" "$path"
+    return 0
+  fi
+  path=$(agy_statusline_state_path "$session_id") || return 1
+  if [[ -s "$path" ]] && live=$(jq -e --arg sid "$session_id" 'select(type == "object" and .session_id == $sid and ([.input_tokens,.cache_read_tokens,.cache_creation_tokens]|all(type == "number" and . >= 0 and floor == .)) and ([.cache_read_tokens,.cache_creation_tokens]|any(. > 0)))' "$path" 2>/dev/null); then
+    ts=$(date -u -r "$(jq -r .observed_at <<<"$live")" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -d "@$(jq -r .observed_at <<<"$live")" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)
+    input=$(jq -r .input_tokens <<<"$live")
+    read=$(jq -r .cache_read_tokens <<<"$live")
+    write=$(jq -r .cache_creation_tokens <<<"$live")
+    model=$(jq -r .model <<<"$live")
+    provider=$(jq -r .provider <<<"$live")
+    [[ -n "$ts" ]] || return 1
+    printf 'agy\t%s\t%s\t%s\t%s\t%s\t0\t0\t%s\t%s\t%s\t%s\n' "$session_id" "$ts" "$input" "$read" "$write" "$model" "$provider" "$path" "$(jq -r '.deadline // 0' <<<"$live")"
+    return 0
+  fi
+  return 1
 }
