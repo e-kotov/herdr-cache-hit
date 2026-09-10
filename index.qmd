@@ -189,11 +189,9 @@ Press `prefix+s` to put the cache closest to expiry at the top of the agents pan
 <div class="install-card">
   <div class="install-card-header">
     <div class="install-card-label">Terminal</div>
-    <button class="copy-install" type="button" aria-label="Copy install commands">Copy</button>
+    <button class="copy-install" type="button" aria-label="Copy install command">Copy</button>
   </div>
-  <pre class="install-command"><code><span class="prompt">$</span> git clone https://github.com/e-kotov/herdr-cache-hit.git
-<span class="prompt">$</span> cd herdr-cache-hit
-<span class="prompt">$</span> herdr plugin link .</code></pre>
+  <pre class="install-command"><code><span class="prompt">$</span> herdr plugin install e-kotov/herdr-cache-hit</code></pre>
 </div>
 ```
 
