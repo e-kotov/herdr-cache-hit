@@ -61,14 +61,6 @@ body {
   color: var(--ink);
 }
 
-.site-nav-brand .ram {
-  width: 24px;
-  height: 24px;
-  background: currentColor;
-  display: block;
-  -webkit-mask: url("assets/ram.svg") center/contain no-repeat;
-  mask: url("assets/ram.svg") center/contain no-repeat;
-}
 
 .site-nav-brand b {
   font-family: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;

@@ -7,7 +7,7 @@ lang: en
 <nav class="site-nav column-screen" id="top" aria-label="Primary navigation" style="z-index: 2000 !important;">
   <div class="site-nav-inner">
     <a class="site-nav-brand" href="#top">
-      <span class="ram" aria-hidden="true"></span><b>herdr</b><span class="plugin-pill">cache-hit</span>
+      <b>herdr</b><span class="plugin-pill">cache-hit</span>
     </a>
     <div class="site-nav-sp"></div>
     <div class="site-nav-links">
