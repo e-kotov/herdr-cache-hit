@@ -151,6 +151,11 @@ report_pane() {
   else
     cmd+=(--clear-token "cache_pct_num")
   fi
+  if [[ -n "$token_val" ]]; then
+    cmd+=(--display-agent "$agent [$token_val]")
+  else
+    cmd+=(--clear-display-agent)
+  fi
   "${cmd[@]}" >/dev/null 2>&1 || true
 }
 clear_pane() {
@@ -158,5 +163,6 @@ clear_pane() {
     --clear-token cache --clear-token cache_status --clear-token cache_pct \
     --clear-token cache_tokens --clear-token cache_state --clear-token cache_details \
     --clear-token cache_deadline --clear-token cache_remaining_secs --clear-token cache_pct_num \
+    --clear-display-agent \
     --ttl-ms 15000 >/dev/null 2>&1 || true
 }
