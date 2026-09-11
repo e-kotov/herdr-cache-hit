@@ -6,6 +6,8 @@
   "bold_time": true,
   "bold_threshold_seconds": 300,
   "timezone": "",
+  "display_agent": "auto",
+  "mobile_width_threshold": 64,
   "agy": {
     "enabled": true,
     "show_deadline": true,

@@ -58,7 +58,10 @@ atomic_install() { mv -f "$1" "$2"; }
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then :; else
     local owner; owner=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
-    [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null && return 1
+    if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+      touch "$LOCK_DIR/rerun" 2>/dev/null || true
+      return 1
+    fi
     rm -rf "$LOCK_DIR" 2>/dev/null || return 1; mkdir "$LOCK_DIR" 2>/dev/null || return 1
   fi
   printf '%s\n' "$$" >"$LOCK_DIR/pid"; printf '%s\n' "$$:$(date +%s)" >"$LOCK_DIR/identity"
@@ -151,7 +154,27 @@ report_pane() {
   else
     cmd+=(--clear-token "cache_pct_num")
   fi
-  if [[ -n "$token_val" ]]; then
+  local inject_mode
+  inject_mode=$(config_str "$agent" "display_agent" "auto")
+  local do_inject=false
+  case "$inject_mode" in
+    true|always) do_inject=true ;;
+    false|never) do_inject=false ;;
+    auto|*)
+      local threshold
+      threshold=$(config_int "$agent" "mobile_width_threshold" 64)
+      local current_width="${HERDR_CURRENT_WIDTH:-}"
+      if [[ -n "${TERMUX_VERSION:-}" ]]; then
+        do_inject=true
+      elif [[ -n "$current_width" && "$current_width" =~ ^[0-9]+$ ]] && (( current_width <= threshold )); then
+        do_inject=true
+      else
+        do_inject=false
+      fi
+      ;;
+  esac
+
+  if [[ "$do_inject" == true && -n "$token_val" ]]; then
     cmd+=(--display-agent "$agent [$token_val]")
   else
     cmd+=(--clear-display-agent)

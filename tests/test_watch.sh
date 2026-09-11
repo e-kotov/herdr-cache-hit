@@ -514,4 +514,73 @@ assert_eq "$(<"$dummy_file")" "NEW_HELPER" 'successful verified replacement inst
 assert_cmd "[[ -x \"$dummy_file\" ]]" 'successful verified replacement is executable'
 assert_cmd "! find \"$dummy_bin_dir\" -maxdepth 1 -name '.*.tmp.*' -o -name '.checksums.tmp.*' | grep -q ." 'successful replacement cleans temporary downloads'
 
+# 11. Auto-adaptive display-agent and mobile layout detection
+da_reports="$TMP/display-agent-reports"
+da_config_dir="$TMP/da-config"
+mkdir -p "$da_config_dir"
+
+# Default auto mode on desktop (width > 64) clears display agent
+rm -f "$da_reports"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_CURRENT_WIDTH=120 bash -c \
+  'source "$1/lib/core.sh"; report_pane pDesktop codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pDesktop.*--clear-display-agent' \"$da_reports\"" 'auto mode on desktop clears display-agent'
+assert_cmd "! grep -q 'pDesktop.*--display-agent' \"$da_reports\"" 'auto mode on desktop does not inject display-agent'
+
+# Default auto mode on mobile width (<= 64) injects display agent
+rm -f "$da_reports"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_CURRENT_WIDTH=50 bash -c \
+  'source "$1/lib/core.sh"; report_pane pMobile codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pMobile.*--display-agent codex \[❄ ⇣500\]' \"$da_reports\"" 'auto mode on mobile width injects display-agent'
+
+# Termux environment injects display agent regardless of width
+rm -f "$da_reports"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_CURRENT_WIDTH=120 TERMUX_VERSION="0.118.0" bash -c \
+  'source "$1/lib/core.sh"; report_pane pTermux codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pTermux.*--display-agent codex \[❄ ⇣500\]' \"$da_reports\"" 'auto mode under Termux injects display-agent'
+
+# Config override: display_agent = "never" forces clear on mobile
+rm -f "$da_reports"
+printf '{"display_agent":"never"}\n' >"$da_config_dir/config.json"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_PLUGIN_CONFIG_DIR="$da_config_dir" HERDR_CURRENT_WIDTH=50 bash -c \
+  'source "$1/lib/core.sh"; report_pane pNever codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pNever.*--clear-display-agent' \"$da_reports\"" 'display_agent=never suppresses display-agent on mobile'
+
+# Config override: display_agent = "always" forces injection on desktop
+rm -f "$da_reports"
+printf '{"display_agent":"always"}\n' >"$da_config_dir/config.json"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_PLUGIN_CONFIG_DIR="$da_config_dir" HERDR_CURRENT_WIDTH=120 bash -c \
+  'source "$1/lib/core.sh"; report_pane pAlways codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pAlways.*--display-agent codex \[❄ ⇣500\]' \"$da_reports\"" 'display_agent=always injects display-agent on desktop'
+
+# Snapshot layout area width detection via watch.sh
+fake_snapshot="$TMP/fake-herdr-snapshot"
+snapshot_panes="$TMP/snapshot-panes.json"
+snapshot_reports="$TMP/snapshot-reports"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/usr/bin/env bash' 'if [[ "$1 $2" == "api snapshot" ]]; then cat "$FAKE_SNAPSHOT"; elif [[ "$1 $2" == "pane list" ]]; then cat "$FAKE_PANES"; else printf "%s\n" "$*" >>"$FAKE_REPORTS"; fi' >"$fake_snapshot"; chmod +x "$fake_snapshot"
+
+# Wide layout snapshot clears display-agent
+printf '{"result":{"snapshot":{"panes":[{"pane_id":"pSnapWide","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"sWide"}}],"layouts":[{"area":{"width":120,"height":40}}]}}}\n' >"$snapshot_panes"
+printf '{"type":"session_meta","payload":{"id":"sWide","cwd":"/same"}}' >"$CODEX_SESSIONS_DIR/2026/09/06/rollout-sWide.jsonl"
+rm -f "$snapshot_reports" "$ROLLOUT_INDEX"
+FAKE_SNAPSHOT="$snapshot_panes" FAKE_REPORTS="$snapshot_reports" HERDR_BIN_PATH="$fake_snapshot" WATCH_ONCE=1 bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pSnapWide.*--clear-display-agent' \"$snapshot_reports\"" 'watch.sh detects wide snapshot layout and clears display-agent'
+
+# Narrow layout snapshot injects display-agent
+printf '{"result":{"snapshot":{"panes":[{"pane_id":"pSnapNarrow","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"sNarrow"}}],"layouts":[{"area":{"width":50,"height":40}}]}}}\n' >"$snapshot_panes"
+ts_narrow=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '%s\n%s\n' '{"type":"session_meta","payload":{"id":"sNarrow","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$ts_narrow\",\"payload\":{\"usage\":{\"input_tokens\":1000,\"cached_input_tokens\":500},\"model\":\"m\",\"model_provider\":\"p\"}}" >"$CODEX_SESSIONS_DIR/2026/09/06/rollout-sNarrow.jsonl"
+rm -f "$snapshot_reports" "$ROLLOUT_INDEX"
+FAKE_SNAPSHOT="$snapshot_panes" FAKE_REPORTS="$snapshot_reports" HERDR_BIN_PATH="$fake_snapshot" WATCH_ONCE=1 bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pSnapNarrow.*--display-agent codex' \"$snapshot_reports\"" 'watch.sh detects narrow snapshot layout and injects display-agent'
+
+# Trailing rerun flag on lock contention
+rerun_lock_dir="$STATE_DIR/watcher.lock"
+rm -rf "$rerun_lock_dir"
+mkdir -p "$rerun_lock_dir"
+printf '%s\n' "$$" >"$rerun_lock_dir/pid"
+assert_cmd "! acquire_lock" 'acquire_lock returns 1 when lock is held by live process'
+assert_cmd "[[ -f \"$rerun_lock_dir/rerun\" ]]" 'contended acquire_lock touches rerun flag'
+rm -rf "$rerun_lock_dir"
+
 exit "$fail"

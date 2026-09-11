@@ -46,6 +46,8 @@ If `config.json` does not exist, safe built-in defaults are used. Changes to `co
 | `bold_time` | boolean | `true` | When `true`, converts countdown clock digits into Unicode mathematical sans-serif bold characters (`𝟬-𝟵`) for visual punch. |
 | `bold_threshold_seconds` | integer | `300` | Countdown threshold in seconds under which clock digits turn bold. Keeps healthy caches sleek and non-bold, turning bold only when expiring. |
 | `timezone` | string | `""` | IANA timezone name (e.g. `"Europe/Berlin"`, `"America/New_York"`). When empty, respects `HERDR_PLUGIN_TIMEZONE` or the local system timezone. |
+| `display_agent` | string | `"auto"` | Controls injection of cache stats into Herdr's `--display-agent` metadata (`"auto"`, `"always"`, or `"never"`). In `"auto"` mode, stats are injected only when terminal width $\le$ `mobile_width_threshold` or under Termux, keeping desktop multi-row sidebars clean and free of duplicate badges. |
+| `mobile_width_threshold` | integer | `64` | Terminal column width at or below which Herdr collapses into single-line mobile layout. |
 
 ### Per-Agent Settings
 
