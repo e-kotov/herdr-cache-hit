@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 
+claude_session_for_pane() {
+  local pane=$1 cwd=$2 panes=$3 process script root
+  command -v python3 >/dev/null 2>&1 || return 1
+  script="${PLUGIN_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/claude_session.py"
+  root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+  process=$("$HERDR_BIN" pane process-info --pane "$pane" 2>/dev/null) || return 1
+  jq -c --argjson panes "$panes" '{process:.result.process_info, panes:$panes}' <<<"$process" |
+    python3 "$script" "$root" "$cwd" "$pane" 2>/dev/null
+}
+
 claude_transcript_path() {
   local session_id=$1 cwd=${2:-} supplied=${3:-} root project
   if [[ -n "$supplied" && -f "$supplied" ]]; then printf '%s\n' "$supplied"; return 0; fi

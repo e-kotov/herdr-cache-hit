@@ -79,6 +79,7 @@ jobs:
           CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o dist/agy-usage-darwin-amd64 ./cmd/agy-usage
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o dist/agy-usage-linux-amd64 ./cmd/agy-usage
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o dist/agy-usage-linux-arm64 ./cmd/agy-usage
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o dist/agy-usage-windows-amd64.exe ./cmd/agy-usage
 
       - name: Generate checksums
         run: |
@@ -94,6 +95,7 @@ jobs:
             dist/agy-usage-darwin-amd64
             dist/agy-usage-linux-amd64
             dist/agy-usage-linux-arm64
+            dist/agy-usage-windows-amd64.exe
             dist/checksums.txt
             THIRD_PARTY_NOTICES.md
           generate_release_notes: true

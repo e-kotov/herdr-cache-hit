@@ -44,7 +44,7 @@ This reads the latest generation metadata from the SQLite database and feeds exa
 
 If you want instantaneous HUD updates while AGY is streaming turns—without waiting for generation records to commit to SQLite—you can bridge AGY's statusline callback to Herdr.
 
-Use the supplied wrapper as the supported bridge implementation. Its installer preserves an existing regular file or symlink as `statusline.real.sh`, refuses to overwrite a backup, and is safe to run again after a successful installation.
+Use the supplied wrapper as the supported bridge implementation. Its installer preserves an existing regular file or symlink as `statusline.real.sh`, refuses to overwrite a backup, and is safe to run again after a successful installation. On Windows Git Bash, it copies the wrapper because Git Bash may create a regular file when asked for a symlink.
 
 ```bash
 # The clone path must be absolute.

@@ -23,6 +23,15 @@ if [[ -L "$statusline" && "$(readlink "$statusline")" == "$wrapper" ]]; then
   exit 0
 fi
 
+case "$(uname -s)" in
+  MINGW*|MSYS*)
+    if [[ -f "$statusline" ]] && cmp -s "$statusline" "$wrapper"; then
+      echo "AGY statusline wrapper is already installed."
+      exit 0
+    fi
+    ;;
+esac
+
 if [[ -e "$backup" || -L "$backup" ]]; then
   echo "Error: refusing to overwrite existing backup $backup" >&2
   exit 1
@@ -31,5 +40,8 @@ fi
 if [[ -e "$statusline" || -L "$statusline" ]]; then
   mv "$statusline" "$backup"
 fi
-ln -s "$wrapper" "$statusline"
+case "$(uname -s)" in
+  MINGW*|MSYS*) cp "$wrapper" "$statusline" ;;
+  *) ln -s "$wrapper" "$statusline" ;;
+esac
 echo "Installed AGY statusline wrapper at $statusline"

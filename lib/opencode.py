@@ -6,6 +6,14 @@ import os
 import sqlite3
 import sys
 
+
+def directory_key(value):
+    """Compare Windows directories even when one source uses forward slashes."""
+    if not value:
+        return ""
+    path = os.path.normpath(value).replace("\\", "/").rstrip("/")
+    return path.casefold() if len(path) > 1 and path[1] == ":" else path
+
 def find_db_path(supplied=None):
     if supplied and os.path.isfile(supplied):
         return supplied
@@ -47,6 +55,7 @@ def get_usage(session_id, cwd="", supplied=""):
     db_path = find_db_path(supplied)
     if not db_path:
         return None
+    con = None
     try:
         con = sqlite3.connect("file:{}?mode=ro".format(
             __import__('urllib.parse', fromlist=['quote']).quote(db_path, safe="/")
@@ -54,15 +63,12 @@ def get_usage(session_id, cwd="", supplied=""):
         con.execute("PRAGMA busy_timeout = 1000;")
         cur = con.cursor()
 
-        # If session_id not given or doesn't match, attempt resolution by directory
+        # If session_id is absent, try the most recently updated session in cwd.
+        # OpenCode stores forward slashes on Windows, while Herdr uses backslashes.
         if not session_id and cwd:
-            cur.execute(
-                "SELECT id FROM session WHERE directory = ? ORDER BY time_updated DESC LIMIT 1",
-                (cwd,)
-            )
-            row = cur.fetchone()
-            if row:
-                session_id = row[0]
+            cur.execute("SELECT id, directory FROM session ORDER BY time_updated DESC")
+            cwd_key = directory_key(cwd)
+            session_id = next((sid for sid, directory in cur if directory_key(directory) == cwd_key), "")
 
         if not session_id:
             return None
@@ -107,6 +113,9 @@ def get_usage(session_id, cwd="", supplied=""):
 
     except Exception:
         return None
+    finally:
+        if con is not None:
+            con.close()
     return None
 
 def main():

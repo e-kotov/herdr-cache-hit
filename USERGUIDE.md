@@ -48,7 +48,7 @@ If `config.json` does not exist, safe built-in defaults are used. Changes to `co
 | `expiring_threshold_seconds`| integer | `300` | Warning threshold in seconds (default 5 minutes). At or below this, the warning symbol appears. |
 | `bold_time` | boolean | `true` | When `true`, converts countdown clock digits into Unicode mathematical sans-serif bold characters (`𝟬-𝟵`) for visual punch. |
 | `bold_threshold_seconds` | integer | `300` | Countdown threshold in seconds under which clock digits turn bold. Keeps healthy caches sleek and non-bold, turning bold only when expiring. |
-| `timezone` | string | `""` | IANA timezone name (e.g. `"Europe/Berlin"`, `"America/New_York"`). When empty, respects `HERDR_PLUGIN_TIMEZONE` or the local system timezone. |
+| `timezone` | string | `""` | IANA timezone name (e.g. `"Europe/Berlin"`, `"America/New_York"`) on macOS/Linux; a POSIX `TZ` string (e.g. `"CET-1CEST,M3.5.0,M10.5.0/3"`) with Git Bash on Windows. When empty, respects `HERDR_PLUGIN_TIMEZONE` or the local system timezone. |
 | `display_agent` | string | `"auto"` | Controls injection of cache stats into Herdr's `--display-agent` metadata (`"auto"`, `"always"`, or `"never"`). In `"auto"` mode, stats are injected only when terminal width $\le$ `mobile_width_threshold` or under Termux, keeping desktop multi-row sidebars clean and free of duplicate badges. |
 | `mobile_width_threshold` | integer | `64` | Terminal column width at or below which Herdr collapses into single-line mobile layout. |
 
@@ -252,8 +252,8 @@ The active mode is saved in `sort_mode.json` and automatically restored whenever
 | Agent | Extraction Method | Required Helper / Dependencies |
 | :--- | :--- | :--- |
 | **Codex CLI** | Rollout inspection from `${CODEX_HOME:-~/.codex}/sessions` | `bash` + `jq`; `python3` 3.6+ for missing-session recovery |
-| **Claude Code** | Project transcript analysis (`~/.claude/projects/`) | None (pure `bash` + `jq`) |
-| **OpenCode** | SQLite database (`~/.local/share/opencode/opencode.db`) | `python3` |
+| **Claude Code** | Project transcript analysis (`~/.claude/projects/`) | `bash` + `jq`; `python3` 3.6+ for missing-session recovery |
+| **OpenCode** | SQLite database (`~/.local/share/opencode/opencode.db`); a missing Herdr session ID is recovered only when the live process and a unique matching database session agree | `python3` |
 | **AGY / Antigravity CLI** | Multi-tier fallback (Statusline → Go helper → Transcript) | Optional Go helper (`agy-usage-*`) or statusline hook |
 
 ### Codex Session Recovery
@@ -284,7 +284,7 @@ Codex adapter, with additional guards for same-directory panes and subagents.
 
 Because AGY CLI transcripts do not serialize token metrics to disk, the plugin uses a 3-tier fallback strategy:
 1. **Tier 1 — Live Statusline Sidecar (Fastest)**: The supplied `scripts/agy-statusline-capture.sh` wrapper writes real-time prompt cache stats to `~/.cache/herdr-cache-plugin/agy-statusline/<sid>.json` without SQLite parsing.
-2. **Tier 2 — Go SQLite Helper (`agy-usage-*`)**: If the statusline sidecar is absent, the plugin invokes the compiled helper to extract token metrics directly from AGY's internal SQLite database (`~/.gemini/antigravity-cli/conversations/<sid>.db`). Precompiled binaries are provided for macOS and Linux.
+2. **Tier 2 — Go SQLite Helper (`agy-usage-*`)**: If the statusline sidecar is absent, the plugin invokes the compiled helper to extract token metrics directly from AGY's internal SQLite database (`~/.gemini/antigravity-cli/conversations/<sid>.db`). Precompiled binaries are provided for macOS, Linux, and Windows x64.
 3. **Tier 3 — Transcript Fallback**: If neither is available, it attempts to read `transcript.jsonl` (used by AGY Web IDE).
 
 > [!NOTE]
