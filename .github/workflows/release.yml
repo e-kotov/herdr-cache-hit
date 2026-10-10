@@ -85,10 +85,31 @@ jobs:
           cd dist
           sha256sum agy-usage-* > checksums.txt
 
+      - name: Extract release changelog
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ["TAG"].removeprefix("v")
+          sections = Path("CHANGELOG.md").read_text().split("\n## ")
+          matches = [section for section in sections[1:]
+                     if section.startswith(f"[{version}] - ")]
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one changelog section for {version}")
+          section = matches[0].strip()
+          if not section.partition("\n")[2].strip():
+              raise SystemExit(f"Empty changelog section for {version}")
+          Path("dist/release-notes.md").write_text("## " + section + "\n")
+          PY
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.ref_name }}
+          body_path: dist/release-notes.md
           files: |
             dist/agy-usage-darwin-arm64
             dist/agy-usage-darwin-amd64
