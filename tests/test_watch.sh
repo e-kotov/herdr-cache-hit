@@ -14,6 +14,26 @@ ok() { printf 'ok - %s\n' "$1"; }
 not_ok() { printf 'not ok - %s\n' "$1"; fail=1; }
 assert_eq() { if [[ "$1" == "$2" ]]; then ok "$3"; else printf 'not ok - %s\n' "$3"; fail=1; fi; }
 assert_cmd() { if eval "$1" >/dev/null 2>&1; then ok "$2"; else not_ok "$2"; fi; }
+
+# Warmer duration is measured from the first warm attempt and can be set at
+# the root (global mode) or overridden per agent. Zero remains unlimited.
+duration_sid=duration_session
+duration_now=$(date +%s)
+duration_started=$(warm_started_path agy "$duration_sid")
+mkdir -p "$CONFIG_DIR" "$STATE_DIR"
+printf '{"agy":{"cache_warmer_sessions":["%s"],"cache_warmer_duration_hours":2}}\n' "$duration_sid" >"$CONFIG_FILE"
+printf '%s\n' "$((duration_now - 3599))" >"$duration_started"
+assert_cmd "warmer_enabled_for_session agy '$duration_sid'" 'finite warmer duration remains active before its deadline'
+printf '%s\n' "$((duration_now - 7201))" >"$duration_started"
+assert_cmd "! warmer_enabled_for_session agy '$duration_sid'" 'finite warmer duration expires after the configured hours'
+printf '{"cache_warmer_global_enabled":true,"cache_warmer_duration_hours":0}\n' >"$CONFIG_FILE"
+assert_cmd "warmer_enabled_for_session agy '$duration_sid'" 'zero warmer duration stays unlimited in global mode'
+
+pid_is_live() {
+  local stat
+  stat=$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ') || return 1
+  [[ -n "$stat" && "$stat" != Z* ]]
+}
 sid=aaa111; roll="$CODEX_SESSIONS_DIR/2026/09/06/rollout-$sid.jsonl"
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111","cwd":"/same"}}' 'not json' '{"type":"token_usage_record","timestamp":"2026-09-06T10:00:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":500},"model":"m1","model_provider":"p1"}}' '{"type":"incomplete"}' >"$roll"
 printf '%s\n' '{"type":"session_meta","payload":{"id":"wrong"}}' >"$TMP/rollout-bbb222.jsonl"
@@ -28,6 +48,95 @@ printf '%s\n' "{\"type\":\"session_meta\",\"payload\":{\"id\":\"$uuid7\"}}" >"$r
 assert_eq "$(rollout_for_session "$uuid7")" "$roll7" 'UUIDv7 timestamp selects exact historical rollout'
 
 assert_eq "$(latest_usage "$roll" "$sid")" $'2026-09-06T10:00:00Z\t1000\t500\tm1\tp1' 'malformed lines are ignored'
+
+# Codex CLI token_count uses per-request counts, not cumulative session totals.
+modern_roll="$CODEX_SESSIONS_DIR/2026/09/06/rollout-modern.jsonl"
+cat >"$modern_roll" <<'JSONL'
+{"type":"session_meta","payload":{"id":"modern","model_provider":"custom-provider"}}
+{"type":"turn_context","payload":{"model":"gpt-current"}}
+{"type":"event_msg","timestamp":"2026-09-06T10:03:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100000,"cached_input_tokens":90000},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":400}}}}
+{"type":"event_msg","timestamp":"2026-09-06T10:04:00Z","payload":{"type":"token_count","info":null,"rate_limits":{}}}
+not json
+{"type":"event_msg","payload":
+JSONL
+assert_eq "$(latest_usage "$modern_roll" modern)" $'2026-09-06T10:03:00Z\t1000\t400\tgpt-current\tcustom-provider' 'Codex token_count reads last usage and ignores quota-only and partial rows'
+assert_eq "$(codex_usage modern | cut -f1-10)" $'codex\tmodern\t2026-09-06T10:03:00Z\t1000\t400\t0\t0\t0\tgpt-current\tcustom-provider' 'Codex adapter preserves model/provider column alignment'
+printf '%s\n' '{"type":"token_usage_record","timestamp":"2026-09-06T10:05:00Z","payload":{"session_id":"modern","usage":{"input_tokens":2000,"cached_input_tokens":1600}}}' >>"$modern_roll"
+assert_eq "$(latest_usage "$modern_roll" modern)" $'2026-09-06T10:05:00Z\t2000\t1600\tgpt-current\tcustom-provider' 'newer token_usage_record wins and inherits rollout metadata'
+printf '%s\n' '{"type":"turn_context","payload":{"model":"next-model"}}' >>"$modern_roll"
+assert_eq "$(latest_usage "$modern_roll" modern | cut -f4)" gpt-current 'later turn context does not relabel previous usage'
+printf '%s\n' '{"type":"event_msg","timestamp":"2026-09-06T10:06:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":3000,"cached_input_tokens":0}}}}' >>"$modern_roll"
+assert_eq "$(latest_usage "$modern_roll" modern)" $'2026-09-06T10:06:00Z\t3000\t0\tnext-model\tcustom-provider' 'newer token_count wins including a real zero-cache request'
+printf '%s\n' '{"type":"token_usage_record","timestamp":"2026-09-06T10:07:00Z","payload":{"session_id":"other","usage":{"input_tokens":4000,"cached_input_tokens":3500}}}' '{"type":"event_msg","timestamp":"2026-09-06T10:08:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":4000,"cached_input_tokens":-1}}}}' '{"type":"event_msg","timestamp":"2026-09-06T10:09:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":4000,"cached_input_tokens":3500}}}}' >>"$modern_roll"
+assert_eq "$(latest_usage "$modern_roll" modern | cut -f1-3)" $'2026-09-06T10:06:00Z\t3000\t0' 'foreign session, invalid counts, and cumulative-only rows are ignored'
+bare_roll="$TMP/bare-codex.jsonl"
+printf '%s\n' '{"type":"token_usage_record","timestamp":"2026-09-06T10:00:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":500}}}' >"$bare_roll"
+assert_eq "$(latest_usage "$bare_roll" bare)" $'2026-09-06T10:00:00Z\t1000\t500\tcodex\topenai' 'missing model/provider use nonempty defaults before TSV parsing'
+assert_eq "$(CODEX_HOME="$TMP/custom-home" env -u CODEX_SESSIONS_DIR -u HODEX_SESSIONS_DIR bash -c 'source "$1/lib/core.sh"; printf "%s" "$SESSIONS_DIR"' _ "$ROOT")" "$TMP/custom-home/sessions" 'Codex home overrides the default session directory'
+
+if python3 - "$ROOT" "$TMP" <<'PY'
+import json, os, pathlib, runpy, sys, time
+module = runpy.run_path(str(pathlib.Path(sys.argv[1]) / 'lib/codex_session.py'))
+resolve = module['resolve_session']
+sessions = pathlib.Path(sys.argv[2]) / 'resolver-sessions'
+sessions.mkdir()
+started = time.time()
+process = {'foreground_processes': [{'name': 'codex', 'argv': ['codex'], 'pid': os.getpid()}]}
+def fixture(sid, created, **extra):
+    payload = {'id': sid, 'cwd': '/same', 'timestamp': created, 'originator': 'codex-tui', 'source': 'vscode', **extra}
+    path = sessions / f'rollout-{sid}.jsonl'
+    path.write_text(json.dumps({'type': 'session_meta', 'payload': payload}) + '\n')
+    return path
+fresh = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started))
+old = '2026-01-01T00:00:00Z'
+fixture('root', fresh)
+fixture('child', fresh, parent_thread_id='root', source={'subagent': {}}, thread_source='subagent')
+assert resolve(sessions, '/same', 'p1', process, [], started) == 'root'
+print('ok - missing native ID resolves a fresh root and excludes subagents')
+fixture('collision', fresh)
+assert resolve(sessions, '/same', 'p1', process, [], started) is None
+print('ok - simultaneous same-directory roots are ambiguous')
+resume = {'foreground_processes': [{'name': 'codex', 'argv': ['codex', 'resume', 'root', '--yolo']}]}
+assert resolve(sessions, '/same', 'p1', resume, [{'agent': 'codex', 'pane_id': 'p2', 'cwd': '/same'}], started) == 'root'
+print('ok - explicit resume ID disambiguates same-directory panes')
+resume['foreground_processes'][0]['argv'].insert(1, '--no-daemon')
+assert resolve(sessions, '/same', 'p1', resume, [{'agent': 'codex', 'pane_id': 'p2', 'cwd': '/same'}], started) == 'root'
+print('ok - explicit resume ID survives the no-daemon global flag')
+fixture('root', old)
+fixture('collision', old)
+claimed = [{'agent': 'codex', 'pane_id': 'p2', 'cwd': '/other', 'agent_session': {'kind': 'id', 'value': 'collision'}}]
+assert resolve(sessions, '/same', 'p1', process, claimed, started) == 'root'
+print('ok - unique active cwd fallback excludes sessions assigned to other panes')
+assert resolve(sessions, '/same', 'p1', process, [], started) is None
+print('ok - multiple active roots refuse a newest-file guess')
+assert resolve(sessions, '/same', 'p1', process, claimed + [{'agent': 'codex', 'pane_id': 'p3', 'cwd': '/same'}], started) is None
+print('ok - cwd fallback refuses multiple live panes in the same directory')
+assert resolve(sessions, '/same', 'p1', {'foreground_processes': []}, claimed, started) is None
+print('ok - missing Codex foreground process cannot select a historical session')
+assert resolve(sessions, '/same', 'p1', process, claimed, None) is None
+print('ok - missing process launch time cannot select a historical session')
+fixture('root', fresh)
+resumed = fixture('collision', old)
+with resumed.open('a') as handle:
+    handle.write(json.dumps({'type': 'token_usage_record', 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started + 1)), 'payload': {'usage': {'input_tokens': 1000, 'cached_input_tokens': 400}}}) + '\n')
+assert resolve(sessions, '/same', 'p1', process, [], started) == 'collision'
+print('ok - interactive resume selects the used root instead of an empty bootstrap thread')
+other = fixture('other-active', old)
+for path, total_in, total_out in [(resumed, 98901000, 241030), (other, 41000, 1800)]:
+    with path.open('a') as handle:
+        handle.write(json.dumps({'type': 'token_usage_record', 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started + 1)), 'payload': {'usage': {'input_tokens': 1000, 'cached_input_tokens': 400}, 'thread_token_usage': {'input_tokens': total_in, 'output_tokens': total_out}}}) + '\n')
+title_panes = [{'pane_id': 'p1', 'agent': 'codex', 'cwd': '/same', 'terminal_title_stripped': 'Working | Context 78% used | 98.9M in | 241K out | GPT-current'}]
+assert resolve(sessions, '/same', 'p1', process, title_panes, started) == 'collision'
+print('ok - pane title totals disambiguate multiple active root rollouts')
+with other.open('a') as handle:
+    handle.write(json.dumps({'type': 'event_msg', 'timestamp': fresh, 'payload': {'type': 'token_count', 'info': {'total_token_usage': {'input_tokens': 98902000, 'output_tokens': 241000}}}}) + '\n')
+assert resolve(sessions, '/same', 'p1', process, title_panes, started) is None
+print('ok - indistinguishable rounded title totals remain ambiguous')
+assert abs(module['process_started'](os.getpid()) - started) < 5
+print('ok - process start time is read from the local process table')
+PY
+then :; else not_ok 'Codex missing-session resolver fixtures'; fi
+
 assert_eq "$(fmt_tokens 0)" 0 'zero formatting'; assert_eq "$(fmt_tokens 10000)" 10.0k 'thousands formatting'; assert_eq "$(fmt_tokens 2000000)" 2.0M 'millions formatting'
 init_state; report_pane() { :; }; clear_pane() { :; }
 update_pane paneA "$sid"; d1=$(jq -r .active.deadline "$(state_path paneA)"); update_pane paneA "$sid"; d2=$(jq -r .active.deadline "$(state_path paneA)")
@@ -53,6 +162,34 @@ assert_cmd "jq -e '.\"p2:m2\" | (length == 1 and .[0] == 2700)' \"$OBSERVATIONS_
 record_observation p2 m2 3300
 learned=$(get_learned_ttl p2 m2 1800)
 assert_eq "$learned" 3000 'shared observations compute learned TTL across panes'
+
+# Codex uses the documented 30-minute baseline; only repeated lower observations shorten it.
+record_observation codex-test codex-model 600
+record_observation codex-test codex-model 900
+learned=$(get_learned_ttl codex-test codex-model 1800 3600 true)
+assert_eq "$learned" 1800 'two lower Codex observations keep the documented baseline'
+record_observation codex-test codex-model 1200
+learned=$(get_learned_ttl codex-test codex-model 1800 3600 true)
+assert_eq "$learned" 900 'three lower Codex observations shorten the estimate'
+record_observation codex-test codex-long 2100
+record_observation codex-test codex-long 2400
+record_observation codex-test codex-long 2700
+learned=$(get_learned_ttl codex-test codex-long 1800 3600 true)
+assert_eq "$learned" 1800 'longer Codex observations do not extend the baseline'
+
+# An upgrade rebases an existing longer Codex deadline without resetting hit time.
+rebase_now=$(date +%s)
+rebase_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+codex_usage() { printf 'codex\tsRebase\t%s\t1000\t800\t0\t0\t0\tmRebase\tpRebase\t/same\n' "$rebase_ts"; }
+rebase_sig='codex|sRebase|mRebase|pRebase|1000|800|0|0|0'
+jq -n --arg sig "$rebase_sig" --argjson now "$rebase_now" '{active:{agent:"codex",session_id:"sRebase",model:"mRebase",provider:"pRebase",signature:$sig,hit_at:$now,deadline:($now+2467),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneRebase)"
+update_pane paneRebase codex sRebase
+assert_eq "$(jq -r '.active.deadline' "$(state_path paneRebase)")" "$((rebase_now + 1800))" 'upgrade rebases an old Codex estimate from its original hit time'
+codex_usage() { return 1; }
+jq -n --argjson now "$rebase_now" '{active:{agent:"codex",session_id:"sNoRecord",model:"mRebase",provider:"pRebase",signature:"old",hit_at:$now,deadline:($now+2467),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneRebaseNoRecord)"
+update_pane paneRebaseNoRecord codex sNoRecord
+assert_eq "$(jq -r '.active.deadline' "$(state_path paneRebaseNoRecord)")" "$((rebase_now + 1800))" 'upgrade rebases cached Codex state when usage is temporarily unavailable'
+unset -f codex_usage
 
 # Prefix shift guardrail: cold drop within 20s does not add to observations
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:47:20Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":0},"model":"m2","model_provider":"p2"}}' >"$roll"
@@ -88,7 +225,7 @@ update_pane paneAGY agy agy-1 /same; assert_cmd "jq -e '.active.agent == \"agy\"
 jq --argjson now "$now" '.deadline = ($now - 1)' "$AGY_STATUSLINE_STATE_DIR/agy-1.json" >"$AGY_STATUSLINE_STATE_DIR/agy-1.tmp" && mv "$AGY_STATUSLINE_STATE_DIR/agy-1.tmp" "$AGY_STATUSLINE_STATE_DIR/agy-1.json"
 assert_eq "$(agy_usage agy-1 | cut -f1,2,4-10)" $'agy\tagy-1\t12000\t48900\t3000\t0\t0\tGemini 3.8 Flash\tantigravity' 'expired AGY sidecar falls back to transcript data'
 update_pane paneClaude claude claude-1 /same; assert_cmd "jq -e '.active.agent == \"claude\" and .active.provider == \"anthropic\"' \"$(state_path paneClaude)\"" 'Claude state is isolated by agent and provider'
-mkdir "$STATE_DIR/watcher.lock"; printf '%s\n' 999999 >"$STATE_DIR/watcher.lock/pid"; assert_cmd 'acquire_lock' 'stale lock is recoverable'; cleanup
+mkdir "$STATE_DIR/watcher.lock"; printf '%s\n' 999999 >"$STATE_DIR/watcher.lock/pid"; assert_cmd 'acquire_lock' 'stale lock is recoverable'; cleanup; rm -rf "$STATE_DIR/watcher.lock"
 if command -v python3 >/dev/null 2>&1; then
   py=$(python3 - "$roll" <<'PY'
 import json,sys
@@ -154,29 +291,60 @@ fi
 
 fake="$TMP/fake-herdr"; reports="$TMP/watcher-reports"; panes="$TMP/panes.json"
 # shellcheck disable=SC2016
-printf '%s\n' '#!/usr/bin/env bash' 'if [[ "$1 $2" == "pane list" ]]; then cat "$FAKE_PANES"; else printf "%s\n" "$*" >>"$FAKE_REPORTS"; fi' >"$fake"; chmod +x "$fake"
+printf '%s\n' '#!/usr/bin/env bash' 'if [[ "$1 $2" == "pane list" ]]; then cat "$FAKE_PANES"; elif [[ "$1 $2" == "pane process-info" ]]; then cat "${FAKE_PROCESS_INFO:-/dev/null}"; else printf "%s\n" "$*" >>"$FAKE_REPORTS"; fi' >"$fake"; chmod +x "$fake"
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}},{"pane_id":"p2","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"bbb222"}},{"pane_id":"p3","agent":"agy","cwd":"/same","agent_session":{"kind":"id","value":"agy-missing"}},{"pane_id":"p4","agent":"opencode","cwd":"/same","agent_session":{"kind":"id","value":"oc-1"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p1.*cache=' \"$reports\"" 'watcher reports native session pane'
 assert_cmd "grep -q 'p1.*cache_status=' \"$reports\"" 'watcher reports granular cache_status'
-assert_cmd "grep -q 'p1.*cache_pct=' \"$reports\"" 'watcher reports granular cache_pct'
+assert_cmd "grep -q 'p1.*clear-token cache_pct' \"$reports\"" 'cold watcher clears formatted cache percentage'
+assert_cmd "grep -q 'p1.*clear-token cache_pct_num' \"$reports\"" 'cold watcher clears numeric cache percentage'
 assert_cmd "grep -q 'p1.*cache_tokens=' \"$reports\"" 'watcher reports granular cache_tokens'
 assert_cmd "grep -q 'p1.*clear-token cache_deadline' \"$reports\"" 'watcher clears cache_deadline on cold pane'
+assert_cmd "grep -q 'p1.*clear-token cache_remaining_secs' \"$reports\"" 'watcher clears cache_remaining_secs on cold pane'
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'missing rollout clears second pane'
 assert_cmd "grep -q 'p2.*clear-token cache_deadline' \"$reports\"" 'missing rollout clears cache_deadline'
+assert_cmd "grep -q 'p2.*clear-token cache_pct_num' \"$reports\"" 'missing rollout clears numeric percentage'
 assert_cmd "grep -q 'p3.*cache_state=cold' \"$reports\"" 'missing AGY usage reports cold'
 assert_cmd "grep -q 'p3.*clear-token cache_deadline' \"$reports\"" 'missing AGY usage clears cache_deadline'
 assert_cmd "grep -q 'p4.*agent opencode.*cache=' \"$reports\"" 'watcher reports OpenCode session pane'
+FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" bash -c \
+  'source "$1/lib/core.sh"; report_pane paneNumeric codex "~12:00 80% ⇣800" 15000 "~12:00" "80%" "⇣800" hot "80% ⇣800" 2000000000 240 80' _ "$ROOT"
+assert_cmd "grep -q 'paneNumeric.*cache_pct=80%' \"$reports\" && grep -q 'paneNumeric.*cache_remaining_secs=240' \"$reports\" && grep -q 'paneNumeric.*cache_pct_num=80' \"$reports\"" 'hot watcher reports formatted and numeric cache metadata'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"p1","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"aaa111"}}]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$reports" HERDR_BIN_PATH="$fake" WATCH_ONCE=1 bash "$ROOT/watch.sh"
 assert_cmd "grep -q 'p2.*clear-token cache' \"$reports\"" 'closed pane is cleared'
+
+# A missing native session ID must survive empty TSV fields and keep polling
+# before the first token_count arrives, rather than waiting for a focus event.
+recovery_process="$TMP/recovery-process.json"
+recovery_reports="$TMP/recovery-reports"
+recovery_wakes="$TMP/recovery-wakes"
+recovery_roll="$CODEX_SESSIONS_DIR/2026/09/06/rollout-recovery.jsonl"
+printf '%s\n' '{"result":{"process_info":{"foreground_processes":[{"name":"codex","argv":["codex","resume","recovery"],"pid":1}]}}}' >"$recovery_process"
+printf '%s\n' '{"result":{"panes":[{"pane_id":"pRecovery","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$panes"
+printf '%s\n' '{"type":"session_meta","payload":{"id":"recovery","model_provider":"openai"}}' >"$recovery_roll"
+FAKE_PANES="$panes" FAKE_PROCESS_INFO="$recovery_process" FAKE_REPORTS="$recovery_reports" FAKE_WAKE_FILE="$recovery_wakes" HERDR_BIN_PATH="$fake" HERDR_NO_TIMER='' bash -c \
+  'source "$1/watch.sh"; schedule_wake() { printf "%s\n" "$1" >"$FAKE_WAKE_FILE"; }; cancel_timer() { printf "cancel\n" >"$FAKE_WAKE_FILE"; }; watch_main' _ "$ROOT"
+assert_eq "$(cat "$recovery_wakes")" 15 'Codex pane with no usage schedules a 15-second refresh'
+recovery_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '%s\n' "{\"type\":\"event_msg\",\"timestamp\":\"$recovery_ts\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":1000,\"cached_input_tokens\":400}}}}" >>"$recovery_roll"
+FAKE_PANES="$panes" FAKE_PROCESS_INFO="$recovery_process" FAKE_REPORTS="$recovery_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pRecovery.*cache_pct=40%' \"$recovery_reports\"" 'missing native ID publishes first token_count cache hit'
+assert_cmd "jq -e '.active.session_id == \"recovery\" and .active.read == 400' \"$(state_path pRecovery)\"" 'missing native ID watcher keeps counters attached to the resolved session'
+printf '%s\n' '{"result":{"panes":[]}}' >"$panes"
+FAKE_PANES="$panes" FAKE_REPORTS="$recovery_reports" FAKE_WAKE_FILE="$recovery_wakes" HERDR_BIN_PATH="$fake" HERDR_NO_TIMER='' bash -c \
+  'source "$1/watch.sh"; schedule_wake() { printf "%s\n" "$1" >"$FAKE_WAKE_FILE"; }; cancel_timer() { printf "cancel\n" >"$FAKE_WAKE_FILE"; }; watch_main' _ "$ROOT"
+assert_eq "$(cat "$recovery_wakes")" cancel 'closing all Codex panes cancels cold refreshes'
 
 # Configurable symbols and expiring threshold tests
 init_state
 now=$(date +%s)
 last_reported=""
 last_deadline=""
-report_pane() { last_reported="$3"; last_deadline="${10:-}"; }
+last_pct=""
+last_remaining=""
+last_pct_num=""
+report_pane() { last_reported="$3"; last_pct="${6:-}"; last_deadline="${10:-}"; last_remaining="${11:-}"; last_pct_num="${12:-}"; }
 sig="codex|s1|m|p|1000|800|0|0|0"
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
@@ -195,19 +363,37 @@ now_expired=$((now + 300))
 now=$now_expired update_pane paneSurvive agy agy-survive
 assert_cmd '[[ -z "$last_deadline" && "$last_reported" == *"800"* && "$last_reported" != *"0% ⇣0"* ]]' 'cold transition retains token counters instead of dropping to 0% ⇣0'
 assert_eq "$last_reported" "❄ ⇣800" 'default cold cache places snowflake immediately before retained token count'
-unset -f agy_usage
+assert_eq "$last_pct" "" 'shared cold formatter clears formatted percentage'
+assert_eq "$last_pct_num" "" 'shared cold formatter clears numeric percentage'
+assert_eq "$last_remaining" "" 'shared cold formatter clears remaining seconds'
 
-# Percentage-enabled agents keep the cold icon adjacent to the token count.
+# Subsequent watch pass while pane remains cold still retains token count
+now_subsequent=$((now_expired + 30))
+now=$now_subsequent update_pane paneSurvive agy agy-survive
+assert_eq "$last_reported" "❄ ⇣800" 'subsequent cold watch pass retains token count instead of reverting to bare snowflake'
+
+# Replacement session in same pane clears old session retained tokens
+unset -f agy_usage
+now=$((now_subsequent + 10)) update_pane paneSurvive agy agy-new-session
+assert_eq "$last_reported" "❄" 'new session without cache starts with bare cold symbol without leaking previous session tokens'
+assert_cmd '[[ "$(jq -r ".last_known" "$(state_path paneSurvive)")" == "null" ]]' 'replacement session clears old last_known state'
+
+# Percentage-enabled agents also suppress percentages while cold.
 codex_usage() { printf 'codex\tsess-cold\t%s\t1000\t0\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 jq -n --argjson now "$now" '{active:{agent:"codex",session_id:"sess-cold",model:"m",provider:"p",signature:"old",hit_at:($now-60),deadline:($now-1),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneColdCodex)"
 now=$now update_pane paneColdCodex codex sess-cold
-assert_eq "$last_reported" "80% ❄ ⇣800" 'cold icon follows percentage and immediately precedes token count'
+assert_eq "$last_reported" "❄ ⇣800" 'Codex cold cache suppresses percentage and keeps retained token count'
+assert_eq "$last_pct" "" 'Codex cold formatter clears formatted percentage'
+assert_eq "$last_pct_num" "" 'Codex cold formatter clears numeric percentage'
+assert_eq "$last_remaining" "" 'Codex cold formatter clears remaining seconds'
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
 # 1. Hot state: deadline 10 minutes ahead (> 300s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_eq "$last_deadline" "$((now+600))" 'active pane passes deadline to report_pane'
+if (( last_remaining >= 590 && last_remaining <= 600 )); then ok 'active pane passes remaining seconds to report_pane'; else not_ok 'active pane passes remaining seconds to report_pane'; fi
+assert_eq "$last_pct_num" "80" 'active pane passes numeric percentage to report_pane'
 assert_cmd "[[ \"$last_reported\" == '~'* && \"$last_reported\" != *'♨️'* ]]" 'hot cache displays clean clock without emoji by default'
 assert_cmd "[[ \"$last_reported\" =~ ~[0-9]{2}:[0-9]{2} ]]" 'hot cache clock remains non-bold before threshold (>5m)'
 
@@ -264,9 +450,13 @@ rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"
 schedule_wake 100
 assert_cmd "[[ -s \"$TIMER_PID_FILE\" ]]" 'schedule_wake records timer PID'
 tpid=$(cat "$TIMER_PID_FILE")
-assert_cmd "kill -0 \"$tpid\" 2>/dev/null" 'scheduled timer process is running'
+assert_cmd "pid_is_live \"$tpid\"" 'scheduled timer process is running'
+schedule_wake 100
+replacement_tpid=$(cat "$TIMER_PID_FILE")
+assert_cmd "[[ \"$tpid\" != \"$replacement_tpid\" ]] && ! pid_is_live \"$tpid\" && pid_is_live \"$replacement_tpid\"" 'rescheduling retains at most one live timer'
 cancel_timer
 assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]]" 'cancel_timer removes PID file'
+assert_cmd "! pid_is_live \"$replacement_tpid\"" 'cancel_timer stops the scheduled process'
 # 6. Declarative view sort mode cycling and persistence
 source "$ROOT/lib/view.sh"
 last_rpc_method=""
@@ -392,7 +582,12 @@ assert_cmd '[[ "$(jq -r ".active.read" "$(state_path paneRestart)")" == "300" ]]
   'stale cache: session B counters are correct'
 unset -f codex_usage
 
-# 9. Complete same-pane restart through watch_main and timer lifecycle.
+# 9. Complete same-pane restart through watch_main. Timer lifecycle is tested
+# above in-process so child reaping is deterministic on both Linux and macOS.
+# Restore the production adapter after the preceding stale-state test replaced it.
+# shellcheck source=../lib/codex.sh
+. "$ROOT/lib/codex.sh"
+rm -rf "$LOCK_DIR"
 restart_reports="$TMP/restart-reports"
 restart_panes="$TMP/restart-panes.json"
 restart_a="$CODEX_SESSIONS_DIR/2026/09/06/rollout-restart-A.jsonl"
@@ -401,33 +596,30 @@ restart_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf '%s\n' '{"type":"session_meta","payload":{"id":"restart-A","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$restart_ts\",\"payload\":{\"usage\":{\"input_tokens\":1000,\"cached_input_tokens\":800},\"model\":\"model-A\",\"model_provider\":\"provider-A\"}}" >"$restart_a"
 rm -f "$ROLLOUT_INDEX"
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"restart-A"}}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
-timer_a=$(cat "$TIMER_PID_FILE")
-assert_cmd "kill -0 \"$timer_a\" 2>/dev/null" 'active cache schedules one rescan timer'
+rm -rf "$LOCK_DIR"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+rm -rf "$LOCK_DIR"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main clears session A state when identity disappears'
-assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! kill -0 \"$timer_a\" 2>/dev/null" 'cold rescan cancels periodic work'
 
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"restart-B"}}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+rm -rf "$LOCK_DIR"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main keeps replacement session cold before its first record'
 
 printf '%s\n' '{"type":"session_meta","payload":{"id":"restart-B","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$restart_ts\",\"payload\":{\"usage\":{\"input_tokens\":500,\"cached_input_tokens\":300},\"model\":\"model-B\",\"model_provider\":\"provider-B\"}}" >"$restart_b"
 rm -f "$ROLLOUT_INDEX"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
 assert_cmd "jq -e '.active.session_id == \"restart-B\" and .active.read == 300 and .active.model == \"model-B\"' \"$(state_path paneRestartWatch)\"" 'watch_main displays only session B data after its first record'
-timer_b=$(cat "$TIMER_PID_FILE")
 assert_eq "$(next_wake_delay 1 '')" "15" 'active cache rescan delay is capped at 15 seconds'
 assert_eq "$(next_wake_delay 1 5)" "5" 'expiration transition preempts the 15-second rescan interval'
 assert_eq "$(next_wake_delay 0 5 || true)" "" 'cold caches request no wake delay'
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
-timer_c=$(cat "$TIMER_PID_FILE")
-assert_cmd "[[ \"$timer_b\" != \"$timer_c\" ]] && ! kill -0 \"$timer_b\" 2>/dev/null && kill -0 \"$timer_c\" 2>/dev/null" 'successive active rescans retain at most one timer'
 printf '%s\n' '{"result":{"panes":[{"pane_id":"paneRestartWatch","agent":"codex","cwd":"/same","agent_session":null}]}}' >"$restart_panes"
-env -u HERDR_NO_TIMER FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
-assert_cmd "[[ ! -f \"$TIMER_PID_FILE\" ]] && ! kill -0 \"$timer_c\" 2>/dev/null" 'no timer remains when every cache is cold'
+rm -rf "$LOCK_DIR"
+FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main leaves the pane cold after session B disappears'
 
 # 10. Download helper validation and replacement tests.
 dummy_bin_dir="$TMP/dummy_bin"
@@ -483,5 +675,377 @@ fi
 assert_eq "$(<"$dummy_file")" "NEW_HELPER" 'successful verified replacement installs downloaded helper'
 assert_cmd "[[ -x \"$dummy_file\" ]]" 'successful verified replacement is executable'
 assert_cmd "! find \"$dummy_bin_dir\" -maxdepth 1 -name '.*.tmp.*' -o -name '.checksums.tmp.*' | grep -q ." 'successful replacement cleans temporary downloads'
+
+# 11. Auto-adaptive display-agent and mobile layout detection
+da_reports="$TMP/display-agent-reports"
+da_config_dir="$TMP/da-config"
+mkdir -p "$da_config_dir"
+
+# Default auto mode on desktop (width > 64) clears display agent
+rm -f "$da_reports"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_CURRENT_WIDTH=120 bash -c \
+  'source "$1/lib/core.sh"; report_pane pDesktop codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pDesktop.*--clear-display-agent' \"$da_reports\"" 'auto mode on desktop clears display-agent'
+assert_cmd "! grep -q 'pDesktop.*--display-agent' \"$da_reports\"" 'auto mode on desktop does not inject display-agent'
+
+# Default auto mode on mobile width (<= 64) injects display agent
+rm -f "$da_reports"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_CURRENT_WIDTH=50 bash -c \
+  'source "$1/lib/core.sh"; report_pane pMobile codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pMobile.*--display-agent codex \[❄ ⇣500\]' \"$da_reports\"" 'auto mode on mobile width injects display-agent'
+
+# Termux environment injects display agent regardless of width
+rm -f "$da_reports"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_CURRENT_WIDTH=120 TERMUX_VERSION="0.118.0" bash -c \
+  'source "$1/lib/core.sh"; report_pane pTermux codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pTermux.*--display-agent codex \[❄ ⇣500\]' \"$da_reports\"" 'auto mode under Termux injects display-agent'
+
+# Config override: display_agent = "never" forces clear on mobile
+rm -f "$da_reports"
+printf '{"display_agent":"never"}\n' >"$da_config_dir/config.json"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_PLUGIN_CONFIG_DIR="$da_config_dir" HERDR_CURRENT_WIDTH=50 bash -c \
+  'source "$1/lib/core.sh"; report_pane pNever codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pNever.*--clear-display-agent' \"$da_reports\"" 'display_agent=never suppresses display-agent on mobile'
+
+# Config override: display_agent = "always" forces injection on desktop
+rm -f "$da_reports"
+printf '{"display_agent":"always"}\n' >"$da_config_dir/config.json"
+FAKE_REPORTS="$da_reports" HERDR_BIN_PATH="$fake" HERDR_PLUGIN_ROOT="$ROOT" HERDR_PLUGIN_CONFIG_DIR="$da_config_dir" HERDR_CURRENT_WIDTH=120 bash -c \
+  'source "$1/lib/core.sh"; report_pane pAlways codex "❄ ⇣500" 15000' _ "$ROOT"
+assert_cmd "grep -q 'pAlways.*--display-agent codex \[❄ ⇣500\]' \"$da_reports\"" 'display_agent=always injects display-agent on desktop'
+
+# Snapshot layout area width detection via watch.sh
+fake_snapshot="$TMP/fake-herdr-snapshot"
+snapshot_panes="$TMP/snapshot-panes.json"
+snapshot_reports="$TMP/snapshot-reports"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/usr/bin/env bash' 'if [[ "$1 $2" == "api snapshot" ]]; then cat "$FAKE_SNAPSHOT"; elif [[ "$1 $2" == "pane list" ]]; then cat "$FAKE_PANES"; else printf "%s\n" "$*" >>"$FAKE_REPORTS"; fi' >"$fake_snapshot"; chmod +x "$fake_snapshot"
+
+# Wide layout snapshot clears display-agent
+printf '{"result":{"snapshot":{"panes":[{"pane_id":"pSnapWide","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"sWide"}}],"layouts":[{"area":{"width":120,"height":40}}]}}}\n' >"$snapshot_panes"
+printf '{"type":"session_meta","payload":{"id":"sWide","cwd":"/same"}}' >"$CODEX_SESSIONS_DIR/2026/09/06/rollout-sWide.jsonl"
+rm -f "$snapshot_reports" "$ROLLOUT_INDEX"
+rm -rf "$LOCK_DIR"
+FAKE_SNAPSHOT="$snapshot_panes" FAKE_REPORTS="$snapshot_reports" HERDR_BIN_PATH="$fake_snapshot" WATCH_ONCE=1 bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pSnapWide.*--clear-display-agent' \"$snapshot_reports\"" 'watch.sh detects wide snapshot layout and clears display-agent'
+
+# Narrow layout snapshot injects display-agent
+printf '{"result":{"snapshot":{"panes":[{"pane_id":"pSnapNarrow","agent":"codex","cwd":"/same","agent_session":{"kind":"id","value":"sNarrow"}}],"layouts":[{"area":{"width":50,"height":40}}]}}}\n' >"$snapshot_panes"
+ts_narrow=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '%s\n%s\n' '{"type":"session_meta","payload":{"id":"sNarrow","cwd":"/same"}}' "{\"type\":\"token_usage_record\",\"timestamp\":\"$ts_narrow\",\"payload\":{\"usage\":{\"input_tokens\":1000,\"cached_input_tokens\":500},\"model\":\"m\",\"model_provider\":\"p\"}}" >"$CODEX_SESSIONS_DIR/2026/09/06/rollout-sNarrow.jsonl"
+rm -f "$snapshot_reports" "$ROLLOUT_INDEX"
+rm -rf "$LOCK_DIR"
+FAKE_SNAPSHOT="$snapshot_panes" FAKE_REPORTS="$snapshot_reports" HERDR_BIN_PATH="$fake_snapshot" WATCH_ONCE=1 bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pSnapNarrow.*--display-agent codex' \"$snapshot_reports\"" 'watch.sh detects narrow snapshot layout and injects display-agent'
+
+# Trailing rerun flag on lock contention
+rerun_lock_dir="$STATE_DIR/watcher.lock"
+rm -rf "$rerun_lock_dir"
+mkdir -p "$rerun_lock_dir"
+printf '%s\n' "$$" >"$rerun_lock_dir/pid"
+assert_cmd "! acquire_lock" 'acquire_lock returns 1 when lock is held by live process'
+assert_cmd "[[ -f \"$rerun_lock_dir/rerun\" ]]" 'contended acquire_lock touches rerun flag'
+rm -rf "$rerun_lock_dir"
+
+# Opt-in cache warmers submit only to an idle, unfocused pane with an empty prompt.
+warm_state="$TMP/warm-state"
+warm_config="$TMP/warm-config"
+warm_log="$TMP/warm-prompts"
+warm_fake="$TMP/fake-herdr-warm"
+mkdir -p "$warm_state" "$warm_config"
+cat >"$warm_fake" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "api snapshot")
+    printf '{"result":{"snapshot":{"panes":[{"pane_id":"%s","agent":"%s","agent_status":"%s","focused":%s,"cwd":"%s","agent_session":{"kind":"id","value":"%s","path":"%s"}}]}}}\n' "${FAKE_PANE_ID:-pWarm}" "${FAKE_AGENT:-codex}" "${FAKE_STATUS:-idle}" "${FAKE_FOCUSED:-false}" "${FAKE_CWD:-/same}" "${FAKE_SESSION_ID:-warm-session-1}" "${FAKE_SESSION_PATH:-}"
+    ;;
+  "agent read")
+    if [[ -n "${FAKE_PROMPT_LINE:-}" ]]; then printf '%s\n' "$FAKE_PROMPT_LINE"
+    elif [[ "${FAKE_AGENT:-codex}" == agy ]]; then printf '>\n'
+    elif [[ "${FAKE_AGENT:-codex}" == claude ]]; then printf '❯\n'
+    else printf '› Ask Codex to do anything\n'; fi
+    ;;
+  "agent prompt") printf '%s\n' "$*" >>"$FAKE_PROMPT_LOG" ;;
+esac
+SH
+chmod +x "$warm_fake"
+warm_deadline=$(( $(date +%s) + 120 ))
+warm_codex_sessions="$warm_state/codex-sessions"
+mkdir -p "$warm_codex_sessions"
+printf '{"type":"session_meta","payload":{"id":"warm-session-1"}}\n{"type":"event_msg","payload":{"type":"turn_started"}}\n{"type":"event_msg","payload":{"type":"turn_complete"}}\n' >"$warm_codex_sessions/warm-session-1.jsonl"
+export CODEX_SESSIONS_DIR="$warm_codex_sessions"
+printf '{"active":{"agent":"codex","session_id":"warm-session-1","model":"gpt-test","provider":"openai","signature":"sig","hit_at":%s,"deadline":%s},"last_known":null,"observations":[]}\n' "$((warm_deadline - 1800))" "$warm_deadline" >"$warm_state/state-pWarm.json"
+printf '{"codex":{"cache_warmer_sessions":["warm-session-1"],"cache_warmer_max_per_session":2}}\n' >"$warm_config/config.json"
+FAKE_PROMPT_LOG="$warm_log" FAKE_STATUS=working HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_codex pWarm warm-session-1' _ "$ROOT"
+assert_cmd "[[ ! -s \"$warm_log\" ]]" 'Codex warmer skips a working parent session, including a subagent wait'
+FAKE_PROMPT_LOG="$warm_log" FAKE_FOCUSED=true HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_codex pWarm warm-session-1' _ "$ROOT"
+assert_cmd "[[ ! -s \"$warm_log\" ]]" 'Codex warmer skips a focused pane'
+FAKE_PROMPT_LOG="$warm_log" FAKE_PROMPT_LINE='› typed user message' HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_codex pWarm warm-session-1' _ "$ROOT"
+assert_cmd "[[ ! -s \"$warm_log\" ]]" 'Codex warmer skips a nonempty prompt editor'
+FAKE_PROMPT_LOG="$warm_log" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_codex pWarm warm-session-1' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$warm_log\") -eq 1 ]]" 'Codex warmer submits one prompt only when all idle guards pass'
+assert_eq "$(cat "$warm_state/codex-warm-count-warm-session-1")" 1 'Codex warmer records its per-session refresh count'
+assert_cmd "[[ -e \"$warm_state/codex-warm-marker-warm-session-1\" ]]" 'Codex warmer marks observations affected by synthetic turns'
+printf '{"cache_warmer_allow_focused_pane":true,"cache_warmer_allow_nonempty_prompt":true,"codex":{"cache_warmer_sessions":["warm-session-1"],"cache_warmer_max_per_session":2}}\n' >"$warm_config/config.json"
+rm -f "$warm_state/codex-warm-epoch-warm-session-1"
+FAKE_PROMPT_LOG="$warm_log" FAKE_FOCUSED=true FAKE_PROMPT_LINE='› typed user message' HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_codex pWarm warm-session-1' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$warm_log\") -eq 2 ]]" 'Codex explicit settings allow warming a focused pane with a draft'
+printf '%s\n' '{"type":"session_meta","payload":{"id":"warm-session-1"}}' '{"type":"event_msg","payload":{"type":"turn_started"}}' >"$warm_codex_sessions/warm-session-1.jsonl"
+assert_eq "$(CODEX_SESSIONS_DIR="$warm_codex_sessions" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; codex_activity_status warm-session-1' _ "$ROOT")" busy 'Codex lifecycle guard detects an unfinished turn'
+printf '%s\n' '{"type":"event_msg","payload":{"type":"turn_complete"}}' >>"$warm_codex_sessions/warm-session-1.jsonl"
+assert_eq "$(CODEX_SESSIONS_DIR="$warm_codex_sessions" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; codex_activity_status warm-session-1' _ "$ROOT")" idle 'Codex lifecycle guard clears after a completed turn'
+printf '%s\n' '{"type":"session_meta","payload":{"id":"warm-session-1"}}' '{"type":"event_msg","payload":{"type":"task_started"}}' >"$warm_codex_sessions/warm-session-1.jsonl"
+assert_eq "$(CODEX_SESSIONS_DIR="$warm_codex_sessions" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; codex_activity_status warm-session-1' _ "$ROOT")" busy 'Codex lifecycle guard detects current task_started events'
+printf '%s\n' '{"type":"event_msg","payload":{"type":"task_complete"}}' >>"$warm_codex_sessions/warm-session-1.jsonl"
+assert_eq "$(CODEX_SESSIONS_DIR="$warm_codex_sessions" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; codex_activity_status warm-session-1' _ "$ROOT")" idle 'Codex lifecycle guard clears after current task_complete events'
+printf '{"type":"session_meta","payload":{"id":"no-lifecycle"}}\n' >"$warm_codex_sessions/no-lifecycle.jsonl"
+assert_eq "$(CODEX_SESSIONS_DIR="$warm_codex_sessions" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; codex_activity_status no-lifecycle' _ "$ROOT")" unknown 'Codex lifecycle guard fails closed without turn events'
+printf '{"codex":{"cache_warmer_sessions":["warm-session-1"],"cache_warmer_max_per_session":0}}\n' >"$warm_config/config.json"
+printf '2\n' >"$warm_state/codex-warm-count-warm-session-1"
+jq '.active.hit_at += 1 | .active.deadline += 1' "$warm_state/state-pWarm.json" >"$warm_state/state-pWarm.next"
+mv "$warm_state/state-pWarm.next" "$warm_state/state-pWarm.json"
+FAKE_PROMPT_LOG="$warm_log" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_codex pWarm warm-session-1' _ "$ROOT"
+assert_eq "$(cat "$warm_state/codex-warm-count-warm-session-1")" 3 'unlimited Codex warming continues beyond the former two-attempt cap'
+warm_observation_marker=$(codex_warm_marker_path warmer-observation-test)
+: >"$warm_observation_marker"
+record_warmed_observation codex warmer-observation-test warmer-provider warmer-model 900 1800
+assert_cmd "! jq -e 'has(\"warmer-provider:warmer-model\")' '$OBSERVATIONS_FILE' >/dev/null 2>&1" 'warmer interval does not enter learned survival observations'
+assert_cmd "[[ ! -e \"$warm_observation_marker\" ]]" 'warmer observation marker is consumed at the next survival result'
+
+agy_warm_state="$TMP/agy-warm-state"
+agy_warm_config="$TMP/agy-warm-config"
+agy_warm_home="$TMP/agy-warm-home"
+agy_warm_log="$TMP/agy-warm-prompts"
+export AGY_CLI_HOME="$agy_warm_home/antigravity-cli"
+mkdir -p "$agy_warm_state" "$agy_warm_config" "$agy_warm_home/antigravity-cli/brain/agy-warm-session/.system_generated/logs"
+: >"$agy_warm_home/antigravity-cli/brain/agy-warm-session/.system_generated/logs/transcript.jsonl"
+agy_margin_log="$TMP/agy-margin-prompts"
+agy_margin_transcript="$agy_warm_home/antigravity-cli/brain/agy-margin-session/.system_generated/logs/transcript.jsonl"
+mkdir -p "$(dirname "$agy_margin_transcript")"
+: >"$agy_margin_transcript"
+agy_margin_deadline=$(( $(date +%s) + 90 ))
+printf '{"active":{"agent":"agy","session_id":"agy-margin-session","model":"gemini-test","provider":"google","signature":"sig","hit_at":%s,"deadline":%s},"last_known":null,"observations":[]}\n' "$((agy_margin_deadline - 300))" "$agy_margin_deadline" >"$agy_warm_state/state-pMargin.json"
+printf '{"agy":{"cache_warmer_sessions":["agy-margin-session"]}}\n' >"$agy_warm_config/config.json"
+FAKE_AGENT=agy FAKE_PANE_ID=pMargin FAKE_SESSION_ID=agy-margin-session FAKE_PROMPT_LOG="$agy_margin_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pMargin agy-margin-session' _ "$ROOT"
+assert_cmd "[[ ! -s \"$agy_margin_log\" ]]" 'AGY default margin waits while more than one minute remains'
+agy_margin_deadline=$(( $(date +%s) + 35 ))
+jq --argjson deadline "$agy_margin_deadline" --argjson hit "$((agy_margin_deadline - 300))" '.active.deadline=$deadline | .active.hit_at=$hit' "$agy_warm_state/state-pMargin.json" >"$agy_warm_state/state-pMargin.next"
+mv "$agy_warm_state/state-pMargin.next" "$agy_warm_state/state-pMargin.json"
+FAKE_AGENT=agy FAKE_PANE_ID=pMargin FAKE_SESSION_ID=agy-margin-session FAKE_PROMPT_LOG="$agy_margin_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pMargin agy-margin-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$agy_margin_log\") -eq 1 ]]" 'AGY default margin allows a warm turn with one minute remaining'
+agy_warm_deadline=$(( $(date +%s) + 50 ))
+printf '{"active":{"agent":"agy","session_id":"agy-warm-session","model":"gemini-test","provider":"google","signature":"sig","hit_at":%s,"deadline":%s},"last_known":null,"observations":[]}\n' "$((agy_warm_deadline - 1800))" "$agy_warm_deadline" >"$agy_warm_state/state-pWarm.json"
+printf '{"agy":{"cache_warmer_sessions":["agy-warm-session"],"cache_warmer_max_per_session":2}}\n' >"$agy_warm_config/config.json"
+FAKE_AGENT=agy FAKE_SESSION_ID=agy-warm-session FAKE_STATUS=working FAKE_PROMPT_LOG="$agy_warm_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pWarm agy-warm-session' _ "$ROOT"
+assert_cmd "[[ ! -s \"$agy_warm_log\" ]]" 'AGY warmer skips a working parent session'
+FAKE_AGENT=agy FAKE_SESSION_ID=agy-warm-session FAKE_FOCUSED=true FAKE_PROMPT_LOG="$agy_warm_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pWarm agy-warm-session' _ "$ROOT"
+assert_cmd "[[ ! -s \"$agy_warm_log\" ]]" 'AGY warmer skips a focused pane'
+FAKE_AGENT=agy FAKE_SESSION_ID=agy-warm-session FAKE_PROMPT_LINE=$'>\n> typed user message' FAKE_PROMPT_LOG="$agy_warm_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pWarm agy-warm-session' _ "$ROOT"
+assert_cmd "[[ ! -s \"$agy_warm_log\" ]]" 'AGY warmer skips a nonempty prompt editor'
+FAKE_AGENT=agy FAKE_SESSION_ID=agy-warm-session FAKE_PROMPT_LOG="$agy_warm_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pWarm agy-warm-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$agy_warm_log\") -eq 1 ]]" 'AGY warmer submits on the standalone empty prompt line'
+FAKE_AGENT=agy FAKE_SESSION_ID=agy-warm-session FAKE_PROMPT_LOG="$agy_warm_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pWarm agy-warm-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$agy_warm_log\") -eq 1 ]]" 'AGY warmer does not repeat within one unchanged cache window'
+assert_eq "$(cat "$agy_warm_state/agy-warm-count-agy-warm-session")" 1 'AGY warmer records its per-session attempt count'
+printf '{"cache_warmer_allow_focused_pane":true,"cache_warmer_allow_nonempty_prompt":true,"agy":{"cache_warmer_sessions":["agy-warm-session"],"cache_warmer_max_per_session":2}}\n' >"$agy_warm_config/config.json"
+rm -f "$agy_warm_state/agy-warm-epoch-agy-warm-session"
+FAKE_AGENT=agy FAKE_SESSION_ID=agy-warm-session FAKE_FOCUSED=true FAKE_PROMPT_LINE=$'>\n> typed user message' FAKE_PROMPT_LOG="$agy_warm_log" AGY_HOME="$agy_warm_home" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pWarm agy-warm-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$agy_warm_log\") -eq 2 ]]" 'AGY explicit settings allow warming a focused pane with a draft'
+agy_task_root="$TMP/agy-task-home"
+export AGY_CLI_HOME="$agy_task_root/antigravity-cli"
+agy_task_transcript="$agy_task_root/antigravity-cli/brain/agy-task-session/.system_generated/logs/transcript.jsonl"
+mkdir -p "$(dirname "$agy_task_transcript")"
+printf '%s\n' "{\"type\":\"GENERIC\",\"content\":\"Task: agy-task-session/task-1\\nStatus: RUNNING\"}" >"$agy_task_transcript"
+agy_task_deadline=$(( $(date +%s) + 50 ))
+printf '{"active":{"agent":"agy","session_id":"agy-task-session","model":"gemini-test","provider":"google","signature":"sig","hit_at":%s,"deadline":%s},"last_known":null,"observations":[]}\n' "$((agy_task_deadline - 1800))" "$agy_task_deadline" >"$agy_warm_state/state-pTask.json"
+printf '{"agy":{"cache_warmer_sessions":["agy-task-session"]}}\n' >"$agy_warm_config/config.json"
+agy_task_prompt_count=$(wc -l <"$agy_warm_log")
+FAKE_AGENT=agy FAKE_SESSION_ID=agy-task-session FAKE_PROMPT_LOG="$agy_warm_log" AGY_HOME="$agy_task_root" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent agy pTask agy-task-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$agy_warm_log\") -eq $agy_task_prompt_count ]]" 'AGY warmer skips a pane with a running background task despite idle status'
+assert_eq "$(AGY_HOME="$agy_task_root" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" bash -c 'source "$1/watch.sh"; agy_activity_status agy-task-session' _ "$ROOT")" busy 'AGY activity guard detects a running delegated task'
+printf '%s\n' '{"type":"SYSTEM_MESSAGE","content":"Task id \"agy-task-session/task-1\" finished with result"}' >>"$agy_task_transcript"
+assert_cmd "AGY_HOME='$agy_task_root' bash -c 'source \"$ROOT/lib/agy.sh\"; ! agy_has_running_background_task agy-task-session'" 'AGY transcript guard releases the session after the background task finishes'
+assert_eq "$(AGY_HOME="$agy_task_root" HERDR_PLUGIN_STATE_DIR="$agy_warm_state" HERDR_PLUGIN_CONFIG_DIR="$agy_warm_config" bash -c 'source "$1/watch.sh"; agy_activity_status agy-task-session' _ "$ROOT")" idle 'AGY activity guard clears after task completion'
+agy_warm_marker=$(warm_marker_path agy agy-observation-test)
+: >"$agy_warm_marker"
+record_warmed_observation agy agy-observation-test agy-provider agy-model 900 1800
+assert_cmd "! jq -e 'has(\"agy-provider:agy-model\")' '$OBSERVATIONS_FILE' >/dev/null 2>&1" 'AGY warmed interval is excluded from learned survival observations'
+
+# Claude warming requires a known cache lifetime and an exactly empty Claude composer.
+claude_warm_log="$TMP/claude-warm-prompts"
+claude_config="$TMP/claude-config"
+claude_transcript="$claude_config/projects/-same/claude-warm-session.jsonl"
+mkdir -p "$(dirname "$claude_transcript")"
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"ready"}]}}\n' >"$claude_transcript"
+claude_warm_deadline=$(( $(date +%s) + 50 ))
+printf '{"active":{"agent":"claude","session_id":"claude-warm-session","model":"claude-test","provider":"anthropic","signature":"sig","hit_at":%s,"deadline":%s,"cache_ttl":300,"write5m":1000},"last_known":null,"observations":[]}' "$((claude_warm_deadline - 300))" "$claude_warm_deadline" >"$warm_state/state-pClaude.json"
+printf '{"claude":{"cache_warmer_sessions":["claude-warm-session"]}}\n' >"$warm_config/config.json"
+FAKE_AGENT=claude FAKE_PANE_ID=pClaude FAKE_SESSION_ID=claude-warm-session FAKE_PROMPT_LOG="$claude_warm_log" CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent claude pClaude claude-warm-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$claude_warm_log\") -eq 1 ]]" 'Claude warmer submits near expiry with an empty composer'
+printf '{"active":{"agent":"claude","session_id":"claude-warm-session","model":"claude-test","provider":"anthropic","signature":"sig2","hit_at":%s,"deadline":%s,"cache_ttl":300},"last_known":null,"observations":[]}' "$((claude_warm_deadline - 301))" "$((claude_warm_deadline + 1))" >"$warm_state/state-pClaudeTyped.json"
+FAKE_AGENT=claude FAKE_PANE_ID=pClaudeTyped FAKE_SESSION_ID=claude-warm-session FAKE_PROMPT_LINE=$'❯\n❯ typed message' FAKE_PROMPT_LOG="$claude_warm_log" CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent claude pClaudeTyped claude-warm-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$claude_warm_log\") -eq 1 ]]" 'Claude warmer skips a nonempty composer'
+printf '{"cache_warmer_allow_focused_pane":true,"cache_warmer_allow_nonempty_prompt":true,"claude":{"cache_warmer_sessions":["claude-warm-session"],"cache_warmer_max_per_session":2}}\n' >"$warm_config/config.json"
+rm -f "$warm_state/claude-warm-epoch-claude-warm-session"
+FAKE_AGENT=claude FAKE_PANE_ID=pClaudeTyped FAKE_SESSION_ID=claude-warm-session FAKE_FOCUSED=true FAKE_PROMPT_LINE=$'❯\n❯ typed message' FAKE_PROMPT_LOG="$claude_warm_log" CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent claude pClaudeTyped claude-warm-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$claude_warm_log\") -eq 2 ]]" 'Claude explicit settings allow warming a focused pane with a draft'
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-active","name":"Bash","input":{"command":"sleep 3600"}}]}}\n' >"$claude_transcript"
+assert_eq "$(CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; claude_activity_status claude-warm-session /same' _ "$ROOT")" busy 'Claude activity guard detects an unfinished tool call'
+printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-active","content":"done"}]}}\n' >>"$claude_transcript"
+assert_eq "$(CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; claude_activity_status claude-warm-session /same' _ "$ROOT")" idle 'Claude activity guard clears after the tool result'
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-bg","name":"Bash","input":{"command":"long job","run_in_background":true}}]}}\n{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-bg","content":"Background task ID: job-1"}]}}\n' >"$claude_transcript"
+assert_eq "$(CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; claude_activity_status claude-warm-session /same' _ "$ROOT")" unknown 'Claude activity guard fails closed while a background shell task lacks completion'
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-poll","name":"BashOutput","input":{"task_id":"job-1"}}]}}\n{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-poll","content":"Task completed with exit code 0"}]}}\n' >>"$claude_transcript"
+assert_eq "$(CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; claude_activity_status claude-warm-session /same' _ "$ROOT")" idle 'Claude activity guard clears after observed background task completion'
+claude_activity() { CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" bash -c 'source "$1/watch.sh"; claude_activity_status claude-warm-session /same' _ "$ROOT"; }
+cat >"$claude_transcript" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-fail","name":"Bash","input":{"command":"false"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-fail","content":"Exit code 1","is_error":true}]},"toolUseResult":"Error: Exit code 1"}
+JSONL
+assert_eq "$(claude_activity)" idle 'Claude activity guard reads a failed tool call whose toolUseResult is a string'
+cat >"$claude_transcript" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-bgid","name":"Bash","input":{"command":"long job","run_in_background":true}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-bgid","content":"Command running in background with ID: bgjob7. Output is being written to: /tmp/bgjob7.output"}]},"toolUseResult":{"stdout":"","stderr":"","backgroundTaskId":"bgjob7"}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-other","content":"<task-notification>\n<task-id>bgjob7</task-id>\n<status>completed</status>\n</task-notification>"}]}}
+{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>bgjob7</task-id>\n<tool-use-id>toolu-bgid</tool-use-id>\n<status>running</status>\n</task-notification>"}
+JSONL
+assert_eq "$(claude_activity)" unknown 'Claude activity guard keeps a background shell task open until a final notification arrives'
+cat >>"$claude_transcript" <<'JSONL'
+{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>bgjob7</task-id>\n<tool-use-id>toolu-bgid</tool-use-id>\n<status>completed</status>\n<summary>Background command \"long job\" completed (exit code 0)</summary>\n</task-notification>"}
+JSONL
+assert_eq "$(claude_activity)" idle 'Claude activity guard clears a background shell task from its completion notification'
+cat >"$claude_transcript" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-agent","name":"Agent","input":{"description":"review","run_in_background":true}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-agent","content":"Async agent launched"}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"agent42"}}
+JSONL
+assert_eq "$(claude_activity)" unknown 'Claude activity guard holds while a background agent runs'
+cat >>"$claude_transcript" <<'JSONL'
+{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>agent42</task-id>\n<tool-use-id>toolu-agent</tool-use-id>\n<status>failed</status>\n</task-notification>"}}
+JSONL
+assert_eq "$(claude_activity)" idle 'Claude activity guard clears a background agent from a queued notification'
+cat >"$claude_transcript" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-fg","name":"Bash","input":{"command":"./sync.sh"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-fg","content":"index running in background\nbackground task failed max retries"}]},"toolUseResult":{"stdout":"index running in background","stderr":""}}
+JSONL
+assert_eq "$(claude_activity)" idle 'Claude activity guard ignores foreground output that mentions background work'
+cat >"$claude_transcript" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu-slow","name":"Bash","input":{"command":"make all","timeout":120000}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu-slow","content":"Command did not complete within its 120s timeout and was moved to the background with ID: slow9."}]},"toolUseResult":{"stdout":"","stderr":"","backgroundTaskId":"slow9"}}
+JSONL
+assert_eq "$(claude_activity)" unknown 'Claude activity guard tracks a timed-out command moved to the background'
+cat >"$claude_transcript" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}
+{"type":"user","message":{"content":"next question"}}
+{"type":"assistant","isApiErrorMessage":true,"error":"rate_limit","message":{"content":[{"type":"text","text":"You've hit your session limit"}]}}
+JSONL
+assert_eq "$(claude_activity)" unknown 'Claude activity guard skips while the latest reply is a usage-limit rejection'
+cat >>"$claude_transcript" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"text","text":"answer after reset"}]}}
+JSONL
+assert_eq "$(claude_activity)" idle 'Claude activity guard resumes after a successful reply follows the rejection'
+cat >"$claude_transcript" <<'JSONL'
+{"type":"assistant","isApiErrorMessage":true,"error":"server_error","message":{"content":[{"type":"text","text":"API Error: Connection lost mid-response."}]}}
+JSONL
+assert_eq "$(claude_activity)" idle 'Claude activity guard does not block on a transient server error'
+printf '{"active":{"agent":"claude","session_id":"claude-unknown-session","hit_at":%s,"deadline":%s},"last_known":null}' "$((claude_warm_deadline - 1800))" "$claude_warm_deadline" >"$warm_state/state-pClaudeUnknown.json"
+printf '{"claude":{"cache_warmer_sessions":["claude-unknown-session"]}}\n' >"$warm_config/config.json"
+claude_prompt_count=$(wc -l <"$claude_warm_log")
+FAKE_AGENT=claude FAKE_PANE_ID=pClaudeUnknown FAKE_SESSION_ID=claude-unknown-session FAKE_PROMPT_LOG="$claude_warm_log" CLAUDE_CONFIG_DIR="$claude_config" HERDR_PLUGIN_STATE_DIR="$warm_state" HERDR_PLUGIN_CONFIG_DIR="$warm_config" HERDR_BIN_PATH="$warm_fake" bash -c 'source "$1/watch.sh"; maybe_warm_agent claude pClaudeUnknown claude-unknown-session' _ "$ROOT"
+assert_cmd "[[ \$(wc -l <\"$claude_warm_log\") -eq $claude_prompt_count ]]" 'Claude warmer skips a cache with unknown lifetime'
+
+# The watcher must route active Claude panes into the same opt-in warmer path.
+claude_watch_calls="$TMP/claude-watch-warm-calls"
+printf '{"result":{"snapshot":{"panes":[{"pane_id":"pWatchClaude","agent":"claude","cwd":"/same","agent_session":{"kind":"id","value":"watch-claude"}}]}}}\n' >"$snapshot_panes"
+FAKE_SNAPSHOT="$snapshot_panes" FAKE_REPORTS="$snapshot_reports" FAKE_WARM_CALLS="$claude_watch_calls" HERDR_BIN_PATH="$fake_snapshot" bash -c '
+  source "$1/watch.sh"
+  update_pane() { ACTIVE_CACHE_COUNT=1; }
+  maybe_warm_agent() { printf "%s\n" "$*" >>"$FAKE_WARM_CALLS"; }
+  watch_main
+' _ "$ROOT"
+assert_cmd "grep -qx 'claude pWatchClaude watch-claude' '$claude_watch_calls'" 'watcher routes an active Claude pane to the warmer'
+
+# The keyboard toggle persists the flag, and the normal cache token exposes armed state.
+warm_toggle_config="$TMP/warm-toggle-config"
+warm_toggle_state="$TMP/warm-toggle-state"
+warm_toggle_fake="$TMP/fake-herdr-toggle"
+mkdir -p "$warm_toggle_config" "$warm_toggle_state"
+printf '{"bold_time":false}\n' >"$warm_toggle_config/config.json"
+cat >"$warm_toggle_fake" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "api snapshot" ]]; then
+  printf '{"result":{"snapshot":{"panes":[{"pane_id":"pToggle","agent":"%s","agent_session":{"kind":"id","value":"toggle-session"}}]}}}\n' "${FAKE_TOGGLE_AGENT:-codex}"
+elif [[ "$1 $2" == "notification show" ]]; then
+  printf '%s\n' "$*" >>"$FAKE_NOTIFICATION_LOG"
+fi
+SH
+chmod +x "$warm_toggle_fake"
+warm_notification_log="$TMP/warm-notifications"
+FAKE_NOTIFICATION_LOG="$warm_notification_log" HERDR_ACTIVE_PANE_ID=pToggle HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_toggle_fake" bash "$ROOT/bin/herdr-cache-warm" toggle >/dev/null
+assert_cmd "jq -e '.codex.cache_warmer_sessions == [\"toggle-session\"] and .bold_time == false' '$warm_toggle_config/config.json' >/dev/null" 'warmer toggle arms focused Codex session and preserves other config'
+assert_cmd "grep -Fq 'notification show Cache warming enabled --body codex session will be warmed near its cache deadline. --sound none' '$warm_notification_log'" 'per-session warmer toggle shows a quiet Herdr notification'
+
+HERDR_ACTIVE_PANE_ID=pToggle HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_toggle_fake" bash "$ROOT/bin/herdr-cache-warm" toggle >/dev/null
+assert_cmd "jq -e '.codex.cache_warmer_sessions == []' '$warm_toggle_config/config.json' >/dev/null" 'warmer toggle disarms focused Codex session'
+FAKE_TOGGLE_AGENT=agy HERDR_ACTIVE_PANE_ID=pToggle HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_toggle_fake" bash "$ROOT/bin/herdr-cache-warm" toggle >/dev/null
+assert_cmd "jq -e '.agy.cache_warmer_sessions == [\"toggle-session\"]' '$warm_toggle_config/config.json' >/dev/null" 'warmer toggle arms a focused AGY session'
+FAKE_TOGGLE_AGENT=agy HERDR_ACTIVE_PANE_ID=pToggle HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_toggle_fake" bash "$ROOT/bin/herdr-cache-warm" toggle >/dev/null
+assert_cmd "jq -e '.agy.cache_warmer_sessions == []' '$warm_toggle_config/config.json' >/dev/null" 'warmer toggle disarms a focused AGY session'
+printf '{"codex":{"cache_warmer_sessions":["toggle-session"]},"agy":{"cache_warmer_sessions":[]}}\n' >"$warm_toggle_config/config.json"
+FAKE_NOTIFICATION_LOG="$warm_notification_log" HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_toggle_fake" bash "$ROOT/bin/herdr-cache-warm" global-toggle >/dev/null
+assert_cmd "jq -e '.cache_warmer_global_enabled == true' '$warm_toggle_config/config.json' >/dev/null" 'global warmer toggle enables all supported sessions'
+assert_cmd "grep -Fq 'notification show Cache warming enabled globally --body All Codex, AGY, and Claude sessions will be warmed near their cache deadlines. --sound none' '$warm_notification_log'" 'global warmer toggle shows a quiet Herdr notification'
+assert_cmd "HERDR_PLUGIN_CONFIG_DIR='$warm_toggle_config' bash -c 'source \"$ROOT/lib/core.sh\"; warmer_enabled_for_session agy future-session'" 'global warmer includes newly opened AGY sessions'
+FAKE_TOGGLE_AGENT=agy HERDR_ACTIVE_PANE_ID=pToggle HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_toggle_fake" bash "$ROOT/bin/herdr-cache-warm" toggle >/dev/null
+assert_cmd "jq -e '.cache_warmer_global_excluded_sessions.agy == [\"toggle-session\"]' '$warm_toggle_config/config.json' >/dev/null" 'per-session toggle excludes a session during global mode'
+FAKE_TOGGLE_AGENT=agy HERDR_ACTIVE_PANE_ID=pToggle HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_toggle_fake" bash "$ROOT/bin/herdr-cache-warm" toggle >/dev/null
+assert_cmd "HERDR_PLUGIN_CONFIG_DIR='$warm_toggle_config' bash -c 'source \"$ROOT/lib/core.sh\"; warmer_enabled_for_session agy toggle-session'" 'per-session toggle restores a session during global mode'
+HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" bash "$ROOT/bin/herdr-cache-warm" global-toggle >/dev/null
+assert_cmd "jq -e '.cache_warmer_global_enabled == false and .agy.cache_warmer_sessions == [] and .codex.cache_warmer_sessions == [\"toggle-session\"]' '$warm_toggle_config/config.json' >/dev/null" 'global warmer toggle returns to saved per-session settings'
+
+# A command-palette invocation focuses its own overlay. Resolve a unique agent
+# session from the overlay's workspace context, and refuse ambiguous workspaces.
+warm_context_fake="$TMP/fake-herdr-warm-context"
+cat >"$warm_context_fake" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1 $2" == "api snapshot" ]]; then
+  cat "$FAKE_CONTEXT_SNAPSHOT"
+elif [[ "$1 $2" == "notification show" ]]; then
+  printf '%s\n' "$*" >>"$FAKE_NOTIFICATION_LOG"
+fi
+SH
+chmod +x "$warm_context_fake"
+warm_context_snapshot="$TMP/warm-context-snapshot.json"
+printf '{"result":{"snapshot":{"panes":[{"pane_id":"pPalette","workspace_id":"wClaude","agent":null},{"pane_id":"pClaude","workspace_id":"wClaude","agent":"claude","agent_session":{"kind":"id","value":"palette-claude-session"}}]}}}\n' >"$warm_context_snapshot"
+printf '{"bold_time":false}\n' >"$warm_toggle_config/config.json"
+FAKE_CONTEXT_SNAPSHOT="$warm_context_snapshot" FAKE_NOTIFICATION_LOG="$warm_notification_log" HERDR_PLUGIN_CONTEXT_JSON='{"workspace_id":"wClaude","focused_pane_id":"pPalette"}' HERDR_WORKSPACE_ID=wClaude HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_context_fake" bash "$ROOT/bin/herdr-cache-warm" toggle-context >/dev/null
+assert_cmd "jq -e '.claude.cache_warmer_sessions == [\"palette-claude-session\"]' '$warm_toggle_config/config.json' >/dev/null" 'command-palette session action targets the unique agent in its workspace'
+printf '{"result":{"snapshot":{"panes":[{"pane_id":"pPalette","workspace_id":"wClaude","agent":null},{"pane_id":"pClaude","workspace_id":"wClaude","agent":"claude","agent_session":{"kind":"id","value":"palette-claude-session"}},{"pane_id":"pCodex","workspace_id":"wClaude","agent":"codex","agent_session":{"kind":"id","value":"palette-codex-session"}}]}}}\n' >"$warm_context_snapshot"
+if FAKE_CONTEXT_SNAPSHOT="$warm_context_snapshot" HERDR_PLUGIN_CONTEXT_JSON='{"workspace_id":"wClaude","focused_pane_id":"pPalette"}' HERDR_WORKSPACE_ID=wClaude HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_context_fake" bash "$ROOT/bin/herdr-cache-warm" toggle-context >/dev/null 2>&1; then
+  not_ok 'command-palette session action refuses an ambiguous workspace target'
+else
+  ok 'command-palette session action refuses an ambiguous workspace target'
+fi
+printf '{"codex":{"cache_warmer_sessions":["armed-session"],"cache_warmer_max_per_session":2}}\n' >"$warm_toggle_config/config.json"
+printf '{"active":{"session_id":"armed-session"}}\n' >"$warm_toggle_state/state-pArmed.json"
+warm_display_log="$TMP/warm-display-report"
+warm_report_fake="$TMP/fake-herdr-report"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$*" >>"$FAKE_REPORTS"' >"$warm_report_fake"
+chmod +x "$warm_report_fake"
+FAKE_REPORTS="$warm_display_log" HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_report_fake" bash -c 'source "$1/lib/core.sh"; report_pane pArmed codex "~1:00 99% ⇣1k" 15000 "~1:00" "99%" "⇣1k" hot "99% ⇣1k" 2000000000 60 99' _ "$ROOT"
+assert_cmd "grep -Fq 'cache=↻~1:00 99% ⇣1k' '$warm_display_log'" 'armed Codex cache displays the default refresh marker before the timer'
+printf '{"cache_warmer_global_enabled":true,"codex":{"cache_warmer_sessions":[]}}\n' >"$warm_toggle_config/config.json"
+printf '2\n' >"$warm_toggle_state/codex-warm-count-armed-session"
+FAKE_REPORTS="$warm_display_log" HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_report_fake" bash -c 'source "$1/lib/core.sh"; report_pane pArmed codex "~1:00 99% ⇣1k" 15000 "~1:00" "99%" "⇣1k" hot "99% ⇣1k" 2000000000 60 99' _ "$ROOT"
+assert_cmd "grep -Fq 'cache=↻~1:00 99% ⇣1k' '$warm_display_log'" 'global warmer marker remains visible after prior capped attempts'
+printf '{"cache_warmer_symbol":"⟳","codex":{"cache_warmer_sessions":["armed-session"],"cache_warmer_max_per_session":2}}\n' >"$warm_toggle_config/config.json"
+printf '0\n' >"$warm_toggle_state/codex-warm-count-armed-session"
+FAKE_REPORTS="$warm_display_log" HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_report_fake" bash -c 'source "$1/lib/core.sh"; report_pane pArmed codex "~1:00 99% ⇣1k" 15000 "~1:00" "99%" "⇣1k" hot "99% ⇣1k" 2000000000 60 99' _ "$ROOT"
+assert_cmd "grep -Fq 'cache=⟳~1:00 99% ⇣1k' '$warm_display_log'" 'cache warmer marker is configurable'
+printf '{"cache_warmer_symbol":"↻","agy":{"cache_warmer_sessions":["agy-armed-session"],"cache_warmer_max_per_session":2}}\n' >"$warm_toggle_config/config.json"
+printf '{"active":{"session_id":"agy-armed-session"}}\n' >"$warm_toggle_state/state-pAgyArmed.json"
+FAKE_REPORTS="$warm_display_log" HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_report_fake" bash -c 'source "$1/lib/core.sh"; report_pane pAgyArmed agy "~1:00 99% ⇣1k" 15000 "~1:00" "99%" "⇣1k" hot "99% ⇣1k" 2000000000 60 99' _ "$ROOT"
+assert_cmd "grep -Fq 'cache=↻~1:00 99% ⇣1k' '$warm_display_log'" 'armed AGY cache displays the auto-warm marker too'
+
+if bash "$ROOT/tests/test_timer.sh"; then :; else not_ok 'background timer lifecycle'; fi
 
 exit "$fail"
