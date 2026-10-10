@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.22] - 2026-10-10
+- Keep background refreshes running when a fired timer becomes the watcher process or its parent. This fixes stale expiry displays and restores scheduled cache-warmer checks.
+- Test repeated background wake-ups and automatic hot-to-cold transitions without pane events.
+
 ## [0.1.21] - 2026-10-05
 - Skip Claude warming while the latest reply is an API rejection such as a usage limit; the warm turn would be rejected too and queue into the user's next turn. Warming resumes after a successful reply. Transient `server_error` replies do not block.
 
