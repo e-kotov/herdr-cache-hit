@@ -16,7 +16,9 @@ printf '{"bold_time":false}\n' >"$CONFIG_FILE"
 # One fixed cache observation expires while no Herdr events occur. Exercise the
 # real watcher, rendering and background timer; only the adapter/API are fakes.
 export TIMER_TEST_TIMESTAMP
-TIMER_TEST_TIMESTAMP=$(python3 -c 'import datetime,time; print(datetime.datetime.fromtimestamp(time.time()-3596, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+# Git Bash process startup can consume several seconds per scan. Leave enough
+# time to observe repeated rearming before expiry on every supported platform.
+TIMER_TEST_TIMESTAMP=$(python3 -c 'import datetime,time; print(datetime.datetime.fromtimestamp(time.time()-3580, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
 cat >"$TMP/herdr" <<'SH'
 #!/usr/bin/env bash
 if [[ "$1 $2" == 'api snapshot' ]]; then
@@ -40,7 +42,7 @@ SH
 bash "$TMP/watch.sh"
 
 finished=false
-for ((attempt=0; attempt<12; attempt++)); do
+for ((attempt=0; attempt<40; attempt++)); do
   if [[ -f "$TMP/reports" ]] && grep -q -- '--token cache_state=cold' "$TMP/reports"; then
     finished=true
     break
