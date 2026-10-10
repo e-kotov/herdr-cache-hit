@@ -8,9 +8,17 @@
 
 [Documentation](https://www.ekotov.pro/herdr-cache-hit/documentation.html)
 
+[Changelog](https://www.ekotov.pro/herdr-cache-hit/changelog.html)
+
 A high-efficiency plugin for [Herdr](https://github.com/herdrdev/herdr) that provides real-time prompt-cache HUD metrics, dynamic expiration countdowns, and declarative cache-deadline agent sorting.
 
 Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **Claude Code**, and **OpenCode**.
+
+## Latest release: v0.1.25
+
+[v0.1.25](https://github.com/e-kotov/herdr-cache-hit/releases/tag/v0.1.25) fixes stale Codex cache clocks after prompt rewind/edit by following the current transcript. Recent releases add native Windows support through Git Bash and fix automatic background refreshes. macOS, Linux, Windows Git Bash and Python 3.6 CI pass.
+
+Python 3.6+ is recommended for exact Codex transcript selection. [Read the full changelog](CHANGELOG.md).
 
 [![Herdr terminal sidebar showing alarm, active, and cold prompt-cache states sorted by expiry](https://www.ekotov.pro/herdr-cache-hit/assets/herdr-expiry-agents.webp)](https://www.ekotov.pro/herdr-cache-hit/)
 
