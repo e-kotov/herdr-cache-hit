@@ -241,6 +241,17 @@ a:focus-visible {
   margin-block: 1.5rem 0.75rem;
 }
 
+.hero-badges {
+  display: flex;
+  margin-block: 0.25rem 0.75rem;
+}
+
+.hero-badges img {
+  display: block;
+  width: auto;
+  height: 20px;
+}
+
 .button {
   display: inline-block;
   padding: 0.72rem 1.1rem;

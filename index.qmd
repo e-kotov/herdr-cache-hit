@@ -35,6 +35,14 @@ Cache Hit plugin for [Herdr](https://herdr.dev/)
 [Install the plugin](#install){.button .button-primary} [View on GitHub](https://github.com/e-kotov/herdr-cache-hit){.button .button-secondary}
 :::
 
+```{=html}
+<div class="hero-badges">
+  <a href="https://github.com/e-kotov/herdr-cache-hit/releases" title="Total release asset downloads, including checksums and notices">
+    <img src="https://img.shields.io/github/downloads/e-kotov/herdr-cache-hit/total?label=asset%20downloads" alt="Total release asset downloads" height="20">
+  </a>
+</div>
+```
+
 Works locally with Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macOS and Linux.
 :::
 
