@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.23] - 2026-10-10
+- Support native Windows Herdr through Git Bash, with a Windows AMD64 helper binary and verified downloads.
+- Recover Claude and OpenCode session identities when Herdr has no native session ID, including Windows paths and executable names.
+- Keep late usage discovery working while retiring timers for expired caches, including write-only caches whose usage record disappears.
+- Preserve native macOS Bash 3.2 compatibility when decoding empty pane paths; verify watcher behavior on macOS, Linux and Windows Git Bash.
+
 ## [0.1.22] - 2026-10-10
 - Keep background refreshes running when a fired timer becomes the watcher process or its parent. This fixes stale expiry displays and restores scheduled cache-warmer checks.
 - Test repeated background wake-ups and automatic hot-to-cold transitions without pane events.
