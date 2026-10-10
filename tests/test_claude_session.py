@@ -22,7 +22,7 @@ class ClaudeSessionTests(unittest.TestCase):
             "name": "claude.exe", "argv": ["claude.exe", "-c"], "pid": 123,
         }]}
         self.project = self.root / "projects" / "".join(
-            ch if ch.isalnum() and ch.isascii() else "-" for ch in self.cwd
+            ch if ch.isalnum() and ord(ch) < 128 else "-" for ch in self.cwd
         )
         self.project.mkdir(parents=True)
 

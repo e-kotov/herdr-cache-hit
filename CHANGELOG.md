@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.24] - 2026-10-10
+- Make the Claude and OpenCode session-recovery tests compatible with Python 3.6, matching the supported runtime and GWDG installations. Runtime behavior is unchanged.
+
 ## [0.1.23] - 2026-10-10
 - Support native Windows Herdr through Git Bash, with a Windows AMD64 helper binary and verified downloads.
 - Recover Claude and OpenCode session identities when Herdr has no native session ID, including Windows paths and executable names.

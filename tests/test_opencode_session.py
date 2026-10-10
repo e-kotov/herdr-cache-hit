@@ -23,7 +23,7 @@ class OpenCodeSessionTests(unittest.TestCase):
         self.process = {"foreground_processes": [{
             "name": "opencode.exe", "argv": ["opencode.exe"], "pid": 123,
         }]}
-        with closing(sqlite3.connect(self.db)) as con:
+        with closing(sqlite3.connect(str(self.db))) as con:
             con.execute("""CREATE TABLE session (
                 id TEXT PRIMARY KEY, directory TEXT, parent_id TEXT, title TEXT,
                 time_created INTEGER, time_updated INTEGER, model TEXT,
@@ -33,7 +33,7 @@ class OpenCodeSessionTests(unittest.TestCase):
             con.commit()
 
     def session(self, sid, created, directory="C:/work/project", title="Greeting"):
-        with closing(sqlite3.connect(self.db)) as con:
+        with closing(sqlite3.connect(str(self.db))) as con:
             con.execute("INSERT INTO session VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
                         (sid, directory, title, int(created * 1000), int(created * 1000),
                          '{"id":"model","providerID":"provider"}', 100, 400, 20))
@@ -56,7 +56,7 @@ class OpenCodeSessionTests(unittest.TestCase):
         self.session("first", self.started + 1)
         self.session("second", self.started + 2)
         self.assertIsNone(self.resolve())
-        with closing(sqlite3.connect(self.db)) as con:
+        with closing(sqlite3.connect(str(self.db))) as con:
             con.execute("DELETE FROM session WHERE id = 'second'")
             con.commit()
         self.assertIsNone(self.resolve(panes=[{"agent": "opencode", "pane_id": "p2", "cwd": self.cwd}]))
