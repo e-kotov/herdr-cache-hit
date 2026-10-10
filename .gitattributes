@@ -1,0 +1,4 @@
+*.sh text eol=lf
+bin/herdr-cache-view text eol=lf
+bin/herdr-cache-warm text eol=lf
+.gitattributes text eol=lf

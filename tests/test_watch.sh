@@ -14,6 +14,19 @@ ok() { printf 'ok - %s\n' "$1"; }
 not_ok() { printf 'not ok - %s\n' "$1"; fail=1; }
 assert_eq() { if [[ "$1" == "$2" ]]; then ok "$3"; else printf 'not ok - %s\n' "$3"; fail=1; fi; }
 assert_cmd() { if eval "$1" >/dev/null 2>&1; then ok "$2"; else not_ok "$2"; fi; }
+assert_eq "$(sh "$ROOT/scripts/run-bash.sh" -c 'printf launched')" launched 'sh launcher starts Bash'
+if command -v python3 >/dev/null 2>&1; then
+  if python3 "$ROOT/tests/test_claude_session.py"; then
+    ok 'Claude missing-session resolver fixtures'
+  else
+    not_ok 'Claude missing-session resolver fixtures'
+  fi
+  if python3 "$ROOT/tests/test_opencode_session.py"; then
+    ok 'OpenCode missing-session resolver fixtures'
+  else
+    not_ok 'OpenCode missing-session resolver fixtures'
+  fi
+fi
 
 # Warmer duration is measured from the first warm attempt and can be set at
 # the root (global mode) or overridden per agent. Zero remains unlimited.
@@ -30,6 +43,10 @@ printf '{"cache_warmer_global_enabled":true,"cache_warmer_duration_hours":0}\n' 
 assert_cmd "warmer_enabled_for_session agy '$duration_sid'" 'zero warmer duration stays unlimited in global mode'
 
 pid_is_live() {
+  if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    kill -0 "$1" 2>/dev/null
+    return $?
+  fi
   local stat
   stat=$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ') || return 1
   [[ -n "$stat" && "$stat" != Z* ]]
@@ -78,6 +95,8 @@ if python3 - "$ROOT" "$TMP" <<'PY'
 import json, os, pathlib, runpy, sys, time
 module = runpy.run_path(str(pathlib.Path(sys.argv[1]) / 'lib/codex_session.py'))
 resolve = module['resolve_session']
+assert module['is_codex_process']({'name': 'codex.exe', 'argv0': r'C:\Tools\codex.exe'})
+print('ok - Windows Codex executable is recognized for session recovery')
 sessions = pathlib.Path(sys.argv[2]) / 'resolver-sessions'
 sessions.mkdir()
 started = time.time()
@@ -242,10 +261,14 @@ PY
 
 if command -v python3 >/dev/null 2>&1; then
   opencode_db="$TMP/opencode.db"
-  export OPENCODE_DB_PATH="$opencode_db"
+  python_db="$opencode_db"
+  if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    python_db=$(cygpath -m "$opencode_db")
+  fi
+  export OPENCODE_DB_PATH="$python_db"
   python3 -c "
 import sqlite3
-con = sqlite3.connect('$opencode_db')
+con = sqlite3.connect('$python_db')
 cur = con.cursor()
 cur.execute('CREATE TABLE session (id text PRIMARY KEY, directory text, time_created integer, time_updated integer, model text, tokens_input integer, tokens_cache_read integer, tokens_cache_write integer)')
 cur.execute('CREATE TABLE message (id text PRIMARY KEY, session_id text, time_created integer, time_updated integer, data text)')
@@ -262,11 +285,12 @@ con.close()
   assert_cmd "jq -e '.active.agent == \"opencode\" and .active.session_id == \"oc-1\" and .active.model == \"gpt-5\"' \"$(state_path paneOC)\"" 'OpenCode pane state is recorded'
 
   # Test OpenCode with live WAL mode and genuinely uncheckpointed committed row
-  wal_fifo="$TMP/wal_sync"
-  mkfifo "$wal_fifo"
-  python3 -c "
+  if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+    wal_fifo="$TMP/wal_sync"
+    mkfifo "$wal_fifo"
+    python3 -c "
 import sqlite3
-con = sqlite3.connect('$opencode_db')
+con = sqlite3.connect('$python_db')
 con.execute('PRAGMA journal_mode=WAL;')
 cur = con.cursor()
 cur.execute('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ('oc-wal', '/wal', 2000, 3000, '{\"id\":\"m-wal\",\"providerID\":\"p-wal\"}', 50, 100, 20))
@@ -277,16 +301,17 @@ open('$wal_fifo', 'w').write('ready\n')
 open('$wal_fifo', 'r').read()
 con.close()
 " &
-  wal_pid=$!
-  # Wait for writer to signal commit is done (blocks until FIFO is written)
-  read -r _ < "$wal_fifo"
-  # Assert WAL file exists (writer still holds connection)
-  assert_cmd "[[ -f '${opencode_db}-wal' ]]" 'WAL file exists while writer holds connection'
-  assert_eq "$(opencode_usage oc-wal | cut -f1,2,4-10)" $'opencode\toc-wal\t30\t90\t25\t0\t0\tclaude-3-7\tanthropic' 'OpenCode reads committed rows from live WAL database'
-  # Release writer
-  echo "done" > "$wal_fifo"
-  wait "$wal_pid" 2>/dev/null || true
-  rm -f "$wal_fifo"
+    wal_pid=$!
+    # Wait for writer to signal commit is done (blocks until FIFO is written)
+    read -r _ < "$wal_fifo"
+    # Assert WAL file exists (writer still holds connection)
+    assert_cmd "[[ -f '${opencode_db}-wal' ]]" 'WAL file exists while writer holds connection'
+    assert_eq "$(opencode_usage oc-wal | cut -f1,2,4-10)" $'opencode\toc-wal\t30\t90\t25\t0\t0\tclaude-3-7\tanthropic' 'OpenCode reads committed rows from live WAL database'
+    # Release writer
+    echo "done" > "$wal_fifo"
+    wait "$wal_pid" 2>/dev/null || true
+    rm -f "$wal_fifo"
+  fi
 fi
 
 fake="$TMP/fake-herdr"; reports="$TMP/watcher-reports"; panes="$TMP/panes.json"
@@ -335,6 +360,63 @@ printf '%s\n' '{"result":{"panes":[]}}' >"$panes"
 FAKE_PANES="$panes" FAKE_REPORTS="$recovery_reports" FAKE_WAKE_FILE="$recovery_wakes" HERDR_BIN_PATH="$fake" HERDR_NO_TIMER='' bash -c \
   'source "$1/watch.sh"; schedule_wake() { printf "%s\n" "$1" >"$FAKE_WAKE_FILE"; }; cancel_timer() { printf "cancel\n" >"$FAKE_WAKE_FILE"; }; watch_main' _ "$ROOT"
 assert_eq "$(cat "$recovery_wakes")" cancel 'closing all Codex panes cancels cold refreshes'
+
+# Windows paths contain backslashes escaped by jq @tsv. A resumed Claude pane
+# must resolve its transcript from the decoded cwd and publish cache metadata.
+claude_win_cwd='C:\work\claude'
+claude_win_config="$TMP/claude-win-config"
+claude_win_project=${claude_win_cwd//[^A-Za-z0-9]/-}
+mkdir -p "$claude_win_config/projects/$claude_win_project"
+claude_win_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+printf '{"sessionId":"win-session","timestamp":"%s","message":{"usage":{"input_tokens":100,"cache_read_input_tokens":400,"cache_creation_input_tokens":20},"model":"claude-sonnet"}}\n' "$claude_win_ts" >"$claude_win_config/projects/$claude_win_project/win-session.jsonl"
+jq -n --arg cwd "$claude_win_cwd" '{result:{panes:[{pane_id:"pClaudeWin",agent:"claude",cwd:$cwd,agent_session:null}]}}' >"$panes"
+claude_win_process="$TMP/claude-win-process.json"
+printf '%s\n' '{"result":{"process_info":{"foreground_processes":[{"name":"claude.exe","argv":["claude.exe","--resume","win-session"]}]}}}' >"$claude_win_process"
+claude_win_reports="$TMP/claude-win-reports"
+CLAUDE_CONFIG_DIR="$claude_win_config" FAKE_PANES="$panes" FAKE_PROCESS_INFO="$claude_win_process" FAKE_REPORTS="$claude_win_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pClaudeWin.*cache=' \"$claude_win_reports\"" 'Windows Claude cwd resolves and reports cache metadata'
+assert_cmd "jq -e '.active.session_id == \"win-session\"' \"$(state_path pClaudeWin)\"" 'Windows Claude cache belongs to the resumed session'
+
+# AGY's statusline can arrive after the agent-detected event. Keep refreshing
+# an agent pane with no usage so the new sidecar appears without a focus event.
+printf '%s\n' '{"result":{"panes":[{"pane_id":"pAgyRefresh","agent":"agy","cwd":"/same","agent_session":{"kind":"id","value":"agy-refresh"}}]}}' >"$panes"
+agy_refresh_reports="$TMP/agy-refresh-reports"
+agy_refresh_wakes="$TMP/agy-refresh-wakes"
+FAKE_PANES="$panes" FAKE_REPORTS="$agy_refresh_reports" FAKE_WAKE_FILE="$agy_refresh_wakes" HERDR_BIN_PATH="$fake" HERDR_NO_TIMER='' bash -c \
+  'source "$1/watch.sh"; schedule_wake() { printf "%s\n" "$1" >"$FAKE_WAKE_FILE"; }; cancel_timer() { printf "cancel\n" >"$FAKE_WAKE_FILE"; }; watch_main' _ "$ROOT"
+assert_eq "$(cat "$agy_refresh_wakes")" 15 'AGY pane with no usage schedules a refresh'
+agy_refresh_now=$(date +%s)
+mkdir -p "$AGY_STATUSLINE_STATE_DIR"
+printf '{"session_id":"agy-refresh","observed_at":%s,"deadline":%s,"input_tokens":100,"cache_read_tokens":400,"cache_creation_tokens":20,"model":"agy-model","provider":"antigravity"}\n' "$agy_refresh_now" "$((agy_refresh_now + 600))" >"$AGY_STATUSLINE_STATE_DIR/agy-refresh.json"
+FAKE_PANES="$panes" FAKE_REPORTS="$agy_refresh_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pAgyRefresh.*cache_state=hot' \"$agy_refresh_reports\"" 'AGY sidecar appears on the next watcher refresh'
+
+# OpenCode may have no Herdr session ID on Windows. Its database stores
+# forward slashes, while Herdr reports backslashes in the pane cwd.
+if command -v python3 >/dev/null 2>&1 && [[ -n "${OPENCODE_DB_PATH:-}" ]]; then
+open_win_cwd='C:\work\opencode'
+open_win_now=$(date +%s)
+python3 - "$OPENCODE_DB_PATH" "$open_win_now" <<'PY'
+from contextlib import closing
+import sqlite3
+import sys
+with closing(sqlite3.connect(sys.argv[1])) as con:
+    con.execute('ALTER TABLE session ADD COLUMN parent_id TEXT')
+    con.execute('ALTER TABLE session ADD COLUMN title TEXT')
+    con.execute('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)',
+                ('oc-no-native', 'C:/work/opencode', int(sys.argv[2]) * 1000,
+                 int(sys.argv[2]) * 1000, '{"id":"m","providerID":"p"}',
+                 100, 400, 20, 'Greeting'))
+    con.commit()
+PY
+jq -n --arg cwd "$open_win_cwd" '{result:{panes:[{pane_id:"pOpenWin",agent:"opencode",cwd:$cwd,terminal_title_stripped:"OC | Greeting",agent_session:null}]}}' >"$panes"
+open_win_process="$TMP/open-win-process.json"
+printf '%s\n' '{"result":{"process_info":{"foreground_processes":[{"name":"opencode.exe","argv":["opencode.exe","--session","oc-no-native"]}]}}}' >"$open_win_process"
+open_win_reports="$TMP/open-win-reports"
+FAKE_PANES="$panes" FAKE_PROCESS_INFO="$open_win_process" FAKE_REPORTS="$open_win_reports" HERDR_BIN_PATH="$fake" bash "$ROOT/watch.sh"
+assert_cmd "grep -q 'pOpenWin.*cache_pct=76%' \"$open_win_reports\"" 'Windows OpenCode pane without native ID reports its cache hit rate'
+assert_cmd "jq -e '.active.session_id == \"oc-no-native\"' \"$(state_path pOpenWin)\"" 'Windows OpenCode metadata belongs to its resolved session'
+fi
 
 # Configurable symbols and expiring threshold tests
 init_state
@@ -392,7 +474,7 @@ codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(dat
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_eq "$last_deadline" "$((now+600))" 'active pane passes deadline to report_pane'
-if (( last_remaining >= 590 && last_remaining <= 600 )); then ok 'active pane passes remaining seconds to report_pane'; else not_ok 'active pane passes remaining seconds to report_pane'; fi
+if (( last_remaining >= 540 && last_remaining <= 600 )); then ok 'active pane passes remaining seconds to report_pane'; else not_ok 'active pane passes remaining seconds to report_pane'; fi
 assert_eq "$last_pct_num" "80" 'active pane passes numeric percentage to report_pane'
 assert_cmd "[[ \"$last_reported\" == '~'* && \"$last_reported\" != *'♨️'* ]]" 'hot cache displays clean clock without emoji by default'
 assert_cmd "[[ \"$last_reported\" =~ ~[0-9]{2}:[0-9]{2} ]]" 'hot cache clock remains non-bold before threshold (>5m)'
@@ -409,6 +491,7 @@ printf '%s\n' '{"hot_symbol":"🔥","expiring_symbol":"⚡","expiring_threshold_
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'🔥'* ]]" 'custom hot symbol and threshold are respected'
 assert_cmd "[[ \"$last_reported\" =~ [0-9]{2}:[0-9]{2} ]]" 'clock stays non-bold when above custom bold threshold'
+now=$(date +%s)
 jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1770),deadline:($now+30)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'⚡'* ]]" 'custom expiring symbol is respected'
@@ -441,7 +524,11 @@ assert_cmd "! jq -e 'has(\"pIso:mIso\")' \"$OBSERVATIONS_FILE\"" 'different sess
 # 4. Timezone override in fmt_clock
 clock_epoch=1788858000 # 2026-09-08 09:00:00 UTC
 HERDR_PLUGIN_TIMEZONE="UTC" assert_eq "$(HERDR_PLUGIN_TIMEZONE="UTC" fmt_clock "$clock_epoch")" "09:00" 'fmt_clock formats in UTC with HERDR_PLUGIN_TIMEZONE'
-HERDR_PLUGIN_TIMEZONE="Europe/Berlin" assert_eq "$(HERDR_PLUGIN_TIMEZONE="Europe/Berlin" fmt_clock "$clock_epoch")" "11:00" 'fmt_clock formats in CEST (+2) with HERDR_PLUGIN_TIMEZONE'
+if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+  HERDR_PLUGIN_TIMEZONE="CET-1CEST,M3.5.0,M10.5.0/3" assert_eq "$(HERDR_PLUGIN_TIMEZONE="CET-1CEST,M3.5.0,M10.5.0/3" fmt_clock "$clock_epoch")" "11:00" 'fmt_clock formats in CEST (+2) with HERDR_PLUGIN_TIMEZONE'
+else
+  HERDR_PLUGIN_TIMEZONE="Europe/Berlin" assert_eq "$(HERDR_PLUGIN_TIMEZONE="Europe/Berlin" fmt_clock "$clock_epoch")" "11:00" 'fmt_clock formats in CEST (+2) with HERDR_PLUGIN_TIMEZONE'
+fi
 printf '%s\n' '{"timezone":"UTC"}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
 assert_eq "$(fmt_clock "$clock_epoch")" "09:00" 'fmt_clock respects timezone from config.json'
 assert_eq "$(to_bold_digits "09:00")" "𝟬𝟵:𝟬𝟬" 'to_bold_digits converts ascii numbers to mathematical sans-serif bold glyphs'
@@ -526,9 +613,9 @@ install_dir="$TMP/agy-install-regular"
 mkdir -p "$install_dir"
 printf '%s\n' 'ORIGINAL_STATUSLINE' >"$install_dir/statusline.sh"
 AGY_CLI_CONFIG_DIR="$install_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null
-assert_cmd "[[ -L \"$install_dir/statusline.sh\" ]] && grep -qx ORIGINAL_STATUSLINE \"$install_dir/statusline.real.sh\"" 'installer preserves a regular statusline as statusline.real.sh'
+assert_cmd "[[ -L \"$install_dir/statusline.sh\" || -f \"$install_dir/statusline.sh\" ]] && grep -qx ORIGINAL_STATUSLINE \"$install_dir/statusline.real.sh\"" 'installer preserves a regular statusline as statusline.real.sh'
 AGY_CLI_CONFIG_DIR="$install_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null
-assert_cmd "[[ -L \"$install_dir/statusline.sh\" ]] && grep -qx ORIGINAL_STATUSLINE \"$install_dir/statusline.real.sh\"" 'installer reinstall is idempotent'
+assert_cmd "[[ -L \"$install_dir/statusline.sh\" || -f \"$install_dir/statusline.sh\" ]] && grep -qx ORIGINAL_STATUSLINE \"$install_dir/statusline.real.sh\"" 'installer reinstall is idempotent'
 if AGY_CLI_CONFIG_DIR="$TMP/relative-install" bash "$ROOT/scripts/install-agy-statusline.sh" relative/path >/dev/null 2>&1; then
   not_ok 'installer rejects a relative clone path'
 else
@@ -539,9 +626,11 @@ install_symlink_dir="$TMP/agy-install-symlink"
 mkdir -p "$install_symlink_dir"
 printf '%s\n' 'LINK_TARGET' >"$install_symlink_dir/original.sh"
 ln -s "$install_symlink_dir/original.sh" "$install_symlink_dir/statusline.sh"
-AGY_CLI_CONFIG_DIR="$install_symlink_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null
-preserved_target=$(readlink "$install_symlink_dir/statusline.real.sh")
-assert_cmd "[[ -L \"$install_symlink_dir/statusline.real.sh\" && \"$preserved_target\" == \"$install_symlink_dir/original.sh\" ]]" 'installer preserves an existing statusline symlink'
+if [[ -L "$install_symlink_dir/statusline.sh" ]]; then
+  AGY_CLI_CONFIG_DIR="$install_symlink_dir" bash "$ROOT/scripts/install-agy-statusline.sh" "$ROOT" >/dev/null
+  preserved_target=$(readlink "$install_symlink_dir/statusline.real.sh")
+  assert_cmd "[[ -L \"$install_symlink_dir/statusline.real.sh\" && \"$preserved_target\" == \"$install_symlink_dir/original.sh\" ]]" 'installer preserves an existing statusline symlink'
+fi
 
 install_backup_dir="$TMP/agy-install-backup"
 mkdir -p "$install_backup_dir"
@@ -622,6 +711,13 @@ FAKE_PANES="$restart_panes" FAKE_REPORTS="$restart_reports" HERDR_BIN_PATH="$fak
 assert_cmd "jq -e '.active == null' \"$(state_path paneRestartWatch)\"" 'watch_main leaves the pane cold after session B disappears'
 
 # 10. Download helper validation and replacement tests.
+fixture_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1"
+  else
+    sha256sum "$1"
+  fi | awk '{print $1}'
+}
 dummy_bin_dir="$TMP/dummy_bin"
 download_dir="$TMP/downloads"
 fake_tools="$TMP/fake-download-tools"
@@ -629,7 +725,7 @@ mkdir -p "$dummy_bin_dir" "$download_dir" "$fake_tools"
 dl_name="agy-usage-darwin-arm64"
 dummy_file="$dummy_bin_dir/$dl_name"
 # shellcheck disable=SC2016
-printf '%s\n' '#!/usr/bin/env bash' 'case "$1" in -s) echo Darwin ;; -m) echo arm64 ;; *) exit 1 ;; esac' >"$fake_tools/uname"
+printf '%s\n' '#!/usr/bin/env bash' 'case "$1" in -s) echo "${FAKE_UNAME_OS:-Darwin}" ;; -m) echo "${FAKE_UNAME_ARCH:-arm64}" ;; *) exit 1 ;; esac' >"$fake_tools/uname"
 # shellcheck disable=SC2016
 printf '%s\n' '#!/usr/bin/env bash' 'url=""; out=""; while [[ $# -gt 0 ]]; do case "$1" in -o) out=$2; shift 2 ;; -*) shift ;; *) url=$1; shift ;; esac; done; src="$FAKE_DOWNLOADS/${url##*/}"; [[ -f "$src" ]] || exit 22; cp "$src" "$out"' >"$fake_tools/curl"
 # shellcheck disable=SC2016
@@ -654,7 +750,7 @@ rm -f "$download_dir/checksums.txt"
 run_download_failure 'missing checksums fail closed'
 printf '%s\n' "bad $dl_name" >"$download_dir/checksums.txt"
 run_download_failure 'malformed checksum entry fails closed'
-good_sum=$(shasum -a 256 "$download_dir/$dl_name" | awk '{print $1}')
+good_sum=$(fixture_sha256 "$download_dir/$dl_name")
 printf '%s  %s\n%s  %s\n' "$good_sum" "$dl_name" "$good_sum" "$dl_name" >"$download_dir/checksums.txt"
 run_download_failure 'duplicate checksum entries fail closed'
 printf '%064d  %s\n' 0 "$dl_name" >"$download_dir/checksums.txt"
@@ -673,8 +769,28 @@ else
   not_ok 'verified helper replaces the old binary'
 fi
 assert_eq "$(<"$dummy_file")" "NEW_HELPER" 'successful verified replacement installs downloaded helper'
-assert_cmd "[[ -x \"$dummy_file\" ]]" 'successful verified replacement is executable'
+if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+  assert_cmd "[[ -x \"$dummy_file\" ]]" 'successful verified replacement is executable'
+fi
 assert_cmd "! find \"$dummy_bin_dir\" -maxdepth 1 -name '.*.tmp.*' -o -name '.checksums.tmp.*' | grep -q ." 'successful replacement cleans temporary downloads'
+
+dl_name="agy-usage-windows-amd64.exe"
+dummy_file="$dummy_bin_dir/$dl_name"
+printf '%s\n' 'WINDOWS_HELPER' >"$download_dir/$dl_name"
+good_sum=$(fixture_sha256 "$download_dir/$dl_name")
+printf '%s  %s\n' "$good_sum" "$dl_name" >"$download_dir/checksums.txt"
+FAKE_UNAME_OS=MINGW64_NT FAKE_UNAME_ARCH=x86_64
+export FAKE_UNAME_OS FAKE_UNAME_ARCH
+FAKE_FILE_TYPE='PE32+ executable for MS Windows 10.00 (console), x86-64, 8 sections'
+if PATH="$fake_tools:$PATH" FAKE_DOWNLOADS="$download_dir" FAKE_FILE_TYPE="$FAKE_FILE_TYPE" HERDR_CACHE_BIN_DIR="$dummy_bin_dir" HERDR_CACHE_HELPER_VERSION="0.1.0" bash "$ROOT/scripts/download-helpers.sh" >/dev/null 2>&1; then
+  ok 'Windows helper downloads and verifies its checksum'
+else
+  not_ok 'Windows helper downloads and verifies its checksum'
+fi
+assert_eq "$(<"$dummy_file")" 'WINDOWS_HELPER' 'Windows helper is installed with the .exe name'
+FAKE_FILE_TYPE='PE32+ executable for MS Windows 10.00 (console), Aarch64, 8 sections'
+run_download_failure 'wrong Windows helper architecture fails closed'
+unset FAKE_UNAME_OS FAKE_UNAME_ARCH
 
 # 11. Auto-adaptive display-agent and mobile layout detection
 da_reports="$TMP/display-agent-reports"

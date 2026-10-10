@@ -3,49 +3,49 @@ name = "Cache Hit"
 version = "0.1.22"
 min_herdr_version = "0.9.0"
 description = "Report prompt-cache usage for Herdr Codex, AGY, Claude, and OpenCode panes"
-platforms = ["macos", "linux"]
+platforms = ["macos", "linux", "windows"]
 
 [[actions]]
 id = "warmer-toggle-session"
 title = "Toggle per-agent cache warming"
 description = "Toggle the individual setting for the identified Codex, AGY, or Claude session in this workspace. Refuses if multiple sessions make the target ambiguous."
 contexts = ["pane", "workspace"]
-command = ["bash", "bin/herdr-cache-warm", "toggle-context"]
+command = ["sh", "scripts/run-bash.sh", "bin/herdr-cache-warm", "toggle-context"]
 
 [[actions]]
 id = "warmer-toggle-global"
 title = "Switch between global and per-agent warming"
 description = "Global ON warms all supported sessions. Switching it OFF returns to individual per-agent settings; it does not turn those settings off."
 contexts = ["global", "workspace", "pane"]
-command = ["bash", "bin/herdr-cache-warm", "global-toggle"]
+command = ["sh", "scripts/run-bash.sh", "bin/herdr-cache-warm", "global-toggle"]
 
 [[build]]
-platforms = ["macos", "linux"]
-command = ["bash", "scripts/download-helpers.sh"]
+platforms = ["macos", "linux", "windows"]
+command = ["sh", "scripts/run-bash.sh", "scripts/download-helpers.sh"]
 
 [[startup]]
-command = ["bash", "watch.sh"]
+command = ["sh", "scripts/run-bash.sh", "watch.sh"]
 
 [[startup]]
-command = ["bash", "bin/herdr-cache-view", "restore"]
+command = ["sh", "scripts/run-bash.sh", "bin/herdr-cache-view", "restore"]
 
 
 [[events]]
 on = "pane.agent_detected"
-command = ["bash", "watch.sh"]
+command = ["sh", "scripts/run-bash.sh", "watch.sh"]
 
 [[events]]
 on = "pane.agent_status_changed"
-command = ["bash", "watch.sh"]
+command = ["sh", "scripts/run-bash.sh", "watch.sh"]
 
 [[events]]
 on = "pane.focused"
-command = ["bash", "watch.sh"]
+command = ["sh", "scripts/run-bash.sh", "watch.sh"]
 
 [[events]]
 on = "pane.closed"
-command = ["bash", "watch.sh"]
+command = ["sh", "scripts/run-bash.sh", "watch.sh"]
 
 [[events]]
 on = "pane.exited"
-command = ["bash", "watch.sh"]
+command = ["sh", "scripts/run-bash.sh", "watch.sh"]
