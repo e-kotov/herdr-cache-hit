@@ -1,11 +1,18 @@
 # Herdr Agent Cache Hit & Expiration Plugin (`cache-hit`)
 
 [![CI](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml/badge.svg)](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml)
+[![Total release downloads](https://img.shields.io/github/downloads/e-kotov/herdr-cache-hit/total?label=release%20downloads)](https://github.com/e-kotov/herdr-cache-hit/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+[Website and live showcase](https://www.ekotov.pro/herdr-cache-hit/)
+
+[Documentation](https://www.ekotov.pro/herdr-cache-hit/documentation.html)
 
 A high-efficiency plugin for [Herdr](https://github.com/herdrdev/herdr) that provides real-time prompt-cache HUD metrics, dynamic expiration countdowns, and declarative cache-deadline agent sorting.
 
 Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **Claude Code**, and **OpenCode**.
+
+[![Herdr terminal sidebar showing alarm, active, and cold prompt-cache states sorted by expiry](https://www.ekotov.pro/herdr-cache-hit/assets/herdr-expiry-agents.webp)](https://www.ekotov.pro/herdr-cache-hit/)
 
 ---
 
@@ -14,8 +21,13 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **
 - **Live Prompt-Cache HUD**: Real-time cache hit ratios, read/cached token metrics, and estimated expiration countdowns directly in Herdr's sidebar.
 - **Urgency Transitions**: Automatic visual transitions from healthy state (`~15:44`) to urgent alarm warning (`⏰~𝟭𝟱:𝟰𝟰`) using mathematical Unicode bold digits when nearing expiration (configurable threshold, default ≤5m).
 - **Declarative Agent Sorting**: Sort active agent panes by prompt-cache expiration deadline (`cache_deadline asc`), keeping expiring agents at the top. Toggle effortlessly with a single keybinding (`prefix+s`).
-- **Bounded Active Rescans**: Event hooks update immediately. While any pane has an active cache, one lightweight wake timer rescans at most every 15 seconds (or sooner for an expiration transition); cold installations schedule no periodic work. A rapid same-pane agent restart can therefore show stale cache state for no more than 15 seconds.
-- **Privacy-First**: Content is processed locally only as necessary to extract usage metadata and is not intentionally extracted, retained, logged, or transmitted.
+- **Bounded Rescans**: Event hooks update immediately. While any cache is active or an enabled Codex pane is present, one lightweight wake timer rescans every 15 seconds (or sooner for an expiration transition). Codex's first cache hit can appear even when the pane started with no cache or native session ID.
+- **Experimental Cache Warmer**: An opt-in warmer can submit a short ordinary turn for Codex, AGY, or Claude. By default it requires the pane to be unfocused, the prompt editor to be empty, and the harness activity signal to confirm idle. Two separate config switches can allow focused panes or nonempty prompt editors; both are off by default. Unknown activity state always skips warming. AGY warming also checks its transcript for outstanding delegated tasks and sends at most once per unchanged cache window.
+- **Optional Warmup Duration**: Warming continues indefinitely by default. Configure `cache_warmer_duration_hours` at the root or per-agent level to stop each session after that many hours from its first warmer attempt.
+- **Warmer Toggle**: Warming is off by default; opt in per Codex, AGY, or Claude session with Herdr's `prefix+u`. The command palette distinguishes **Toggle per-agent cache warming** from **Switch between global and per-agent warming**. Global mode ON includes all supported sessions; switching it OFF returns to saved individual settings and does not turn those settings off. There is no default global-warming shortcut; users can add one in Herdr config if desired. The session palette action refuses if multiple identified sessions make its target ambiguous. A configurable `↻` before the countdown marks an armed session.
+- **Privacy-First**: Cache telemetry is read locally. When the experimental warmer is enabled, its short prompt is submitted like a normal user turn and is stored in that agent session.
+
+When `cache_warmer_allow_nonempty_prompt` is enabled, Herdr sends the warm prompt through the pane's terminal input and presses Enter. Existing draft text may therefore be submitted together with the warm prompt. Enable this only if that behavior is acceptable.
 
 ---
 
@@ -25,7 +37,7 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **
 - **Dependencies**:
   - `jq` (**Required**): Core JSON parser for state and token metadata (`brew install jq` or `sudo apt install jq`).
   - `bash` (**Required**): Standard on Linux (4.0+) and macOS (native bash 3.2 works; Homebrew bash 4.0+ is also supported).
-  - `python3` (**Optional**): Only needed if monitoring **OpenCode** (queries its SQLite database) or using `herdr-cache-view toggle` for view sorting. Not needed for Codex or Claude Code.
+  - `python3` 3.6+ (**Optional**): Needed for **OpenCode**, view sorting, and Codex session recovery when Herdr has no native session ID. Codex panes with a native session ID and Claude Code need only Bash and jq.
   - `Go` 1.24+ (**Optional**): Only needed if building the AGY SQLite helper from source instead of downloading the precompiled release binary.
 
 ---
@@ -34,11 +46,23 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **
 
 ### 1. Install Plugin
 
-Clone the repository and link it to Herdr:
+Install directly with Herdr:
+
+```bash
+herdr plugin install e-kotov/herdr-cache-hit
+```
+
+Herdr will automatically clone the repository and run the build step to download and checksum-verify the precompiled helper binary for your platform.
+
+<details>
+<summary>Manual / Development Install</summary>
 
 ```bash
 git clone https://github.com/e-kotov/herdr-cache-hit.git
 cd herdr-cache-hit
+
+# Download precompiled helper binary (or compile locally with ./scripts/build-agy-usage.sh)
+./scripts/download-helpers.sh
 
 # Link to Herdr
 herdr plugin unlink cache-hit 2>/dev/null || true
@@ -46,15 +70,7 @@ herdr plugin link .
 herdr plugin list
 ```
 
-*(Optional — only for AGY users)*: If you monitor Antigravity CLI, download the precompiled SQLite helper binary (or see the [AGY Integration Guide](docs/AGY_INTEGRATION.md) for real-time statusline options):
-
-```bash
-# Download precompiled binary matching the plugin manifest version:
-./scripts/download-helpers.sh
-
-# OR compile locally:
-./scripts/build-agy-usage.sh
-```
+</details>
 
 ### 2. Configure Herdr Sidebar
 
@@ -68,6 +84,7 @@ rows = [
     { token = "$cache", fg = "#64748b", bold = false, dim = true, rules = [
       { starts_with = "⏰", bold = true, dim = false, fg = "#7f1d1d" },
       { starts_with = "⚠️", bold = true, dim = false, fg = "#b45309" },
+      { starts_with = "↻~", bold = false, dim = false, fg = "#713f78" },
       { starts_with = "~", bold = false, dim = false, fg = "#713f78" },
       { starts_with = "♨️", bold = false, dim = false, fg = "#713f78" }
     ] }
@@ -75,6 +92,9 @@ rows = [
   [{ token = "workspace", fg = "#4c4669", bold = false, dim = false }, { token = "tab", fg = "#4c4669", bold = false, dim = false }]
 ]
 ```
+
+If you customize `cache_warmer_symbol`, add a matching `starts_with` rule before
+the generic `~` rule to preserve the active-cache color.
 
 ### 3. Add 2-Way Expiration Sorting Keybinding
 
@@ -100,9 +120,11 @@ herdr server reload-config
 
 The plugin emits the following pane tokens:
 
-- **`$cache`**: Unified token string without middle dots (e.g. `~11:41 99% ⇣95.4k` when healthy, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring, or `99% ❄ ⇣95.4k` when cold).
+- **`$cache`**: Unified token string without middle dots (e.g. `~11:41 99% ⇣95.4k` when healthy, `⏰~𝟭𝟭:𝟰𝟭 99% ⇣95.4k` when expiring, or `❄ ⇣95.4k` when cold). Percentages are omitted after expiration because they describe the last request rather than the usable cache.
 - **`$cache_status`**: Expiration clock with optional symbol prefix (e.g. `~11:41` or `⏰~𝟭𝟭:𝟰𝟭`).
 - **`$cache_pct`**: Cache hit percentage (`99%`).
+- **`$cache_pct_num`**: Raw integer hit percentage for native numeric rules (`99`; cleared when cold).
+- **`$cache_remaining_secs`**: Seconds until estimated expiration (`240`; cleared when cold).
 - **`$cache_tokens`**: Read and write token counters (`⇣95.4k`).
 - **`$cache_state`**: State identifier (`hot`, `expiring`, or `cold`).
 - **`cache_deadline`**: Epoch timestamp used for declarative sorting.
