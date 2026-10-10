@@ -129,7 +129,9 @@ cancel_timer() {
   if [[ -f "$TIMER_PID_FILE" ]]; then
     local old_pid
     old_pid=$(cat "$TIMER_PID_FILE" 2>/dev/null || true)
-    if [[ "$old_pid" =~ ^[0-9]+$ ]]; then
+    # A fired timer may exec the watcher (Linux Bash), or remain its parent
+    # (macOS Bash). Retire its PID file without terminating the current scan.
+    if [[ "$old_pid" =~ ^[0-9]+$ && "$old_pid" != "$$" && "$old_pid" != "$PPID" ]]; then
       pkill -P "$old_pid" 2>/dev/null || true
       kill "$old_pid" 2>/dev/null || true
       wait "$old_pid" 2>/dev/null || true

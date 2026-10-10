@@ -1046,4 +1046,6 @@ printf '{"active":{"session_id":"agy-armed-session"}}\n' >"$warm_toggle_state/st
 FAKE_REPORTS="$warm_display_log" HERDR_PLUGIN_CONFIG_DIR="$warm_toggle_config" HERDR_PLUGIN_STATE_DIR="$warm_toggle_state" HERDR_BIN_PATH="$warm_report_fake" bash -c 'source "$1/lib/core.sh"; report_pane pAgyArmed agy "~1:00 99% ⇣1k" 15000 "~1:00" "99%" "⇣1k" hot "99% ⇣1k" 2000000000 60 99' _ "$ROOT"
 assert_cmd "grep -Fq 'cache=↻~1:00 99% ⇣1k' '$warm_display_log'" 'armed AGY cache displays the auto-warm marker too'
 
+if bash "$ROOT/tests/test_timer.sh"; then :; else not_ok 'background timer lifecycle'; fi
+
 exit "$fail"
