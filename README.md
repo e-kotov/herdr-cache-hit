@@ -21,7 +21,7 @@ Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **
 - **Live Prompt-Cache HUD**: Real-time cache hit ratios, read/cached token metrics, and estimated expiration countdowns directly in Herdr's sidebar.
 - **Urgency Transitions**: Automatic visual transitions from healthy state (`~15:44`) to urgent alarm warning (`⏰~𝟭𝟱:𝟰𝟰`) using mathematical Unicode bold digits when nearing expiration (configurable threshold, default ≤5m).
 - **Declarative Agent Sorting**: Sort active agent panes by prompt-cache expiration deadline (`cache_deadline asc`), keeping expiring agents at the top. Toggle effortlessly with a single keybinding (`prefix+s`).
-- **Bounded Rescans**: Event hooks update immediately. While any cache is active or an enabled Codex pane is present, one lightweight wake timer rescans every 15 seconds (or sooner for an expiration transition). Codex's first cache hit can appear even when the pane started with no cache or native session ID.
+- **Bounded Rescans**: Event hooks update immediately. While any cache is active, an enabled Codex pane is present, or an enabled agent pane is awaiting its first usage record, one lightweight wake timer rescans every 15 seconds (or sooner for an expiration transition). Session recovery and late usage can appear without a focus event; expired caches alone do not keep the timer running.
 - **Experimental Cache Warmer**: An opt-in warmer can submit a short ordinary turn for Codex, AGY, or Claude. By default it requires the pane to be unfocused, the prompt editor to be empty, and the harness activity signal to confirm idle. Two separate config switches can allow focused panes or nonempty prompt editors; both are off by default. Unknown activity state always skips warming. AGY warming also checks its transcript for outstanding delegated tasks and sends at most once per unchanged cache window.
 - **Optional Warmup Duration**: Warming continues indefinitely by default. Configure `cache_warmer_duration_hours` at the root or per-agent level to stop each session after that many hours from its first warmer attempt.
 - **Warmer Toggle**: Warming is off by default; opt in per Codex, AGY, or Claude session with Herdr's `prefix+u`. The command palette distinguishes **Toggle per-agent cache warming** from **Switch between global and per-agent warming**. Global mode ON includes all supported sessions; switching it OFF returns to saved individual settings and does not turn those settings off. There is no default global-warming shortcut; users can add one in Herdr config if desired. The session palette action refuses if multiple identified sessions make its target ambiguous. A configurable `↻` before the countdown marks an armed session.
@@ -33,11 +33,11 @@ When `cache_warmer_allow_nonempty_prompt` is enabled, Herdr sends the warm promp
 
 ## Prerequisites & Compatibility
 
-- **Operating Systems**: **macOS** and **Linux** (native). On **Windows**, use **WSL2** (Windows Subsystem for Linux). Native Windows (PowerShell / Command Prompt) is not supported as Herdr and its plugin hooks run in a POSIX shell environment.
+- **Operating Systems**: **macOS** and **Linux** (native). On **Windows**, native Herdr requires Git for Windows (`sh.exe` and Bash) on `PATH` for plugin commands; WSL2 remains an option.
 - **Dependencies**:
-  - `jq` (**Required**): Core JSON parser for state and token metadata (`brew install jq` or `sudo apt install jq`).
-  - `bash` (**Required**): Standard on Linux (4.0+) and macOS (native bash 3.2 works; Homebrew bash 4.0+ is also supported).
-  - `python3` 3.6+ (**Optional**): Needed for **OpenCode**, view sorting, and Codex session recovery when Herdr has no native session ID. Codex panes with a native session ID and Claude Code need only Bash and jq.
+  - `jq` (**Required**): Core JSON parser for state and token metadata (`brew install jq`, `sudo apt install jq`, or `scoop install jq` on Windows). It must be on the `PATH` seen by Git Bash.
+  - `bash` (**Required**): Standard on Linux (4.0+) and macOS (native bash 3.2 works; Homebrew bash 4.0+ is also supported). On Windows, install Git for Windows and make sure its `sh.exe` is on the Windows `PATH`. The plugin enters through `sh`, which then starts Git Bash even when the WSL `bash.exe` alias appears earlier on `PATH`.
+  - `python3` 3.6+ (**Optional**): Needed for **OpenCode**, view sorting, and Codex or Claude session recovery when Herdr has no native session ID. Panes with a native session ID need only Bash and jq.
   - `Go` 1.24+ (**Optional**): Only needed if building the AGY SQLite helper from source instead of downloading the precompiled release binary.
 
 ---

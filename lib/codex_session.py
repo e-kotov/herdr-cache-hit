@@ -14,9 +14,37 @@ import time
 SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
+def is_codex_process(process):
+    names = (process.get("name") or "", Path(process.get("argv0") or "").name)
+    return any(name.lower() in ("codex", "codex.exe") for name in names)
+
+
 def process_started(pid):
     if not isinstance(pid, int) or pid <= 0:
         return None
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return None
+        try:
+            created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
+            if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited),
+                                            ctypes.byref(kernel), ctypes.byref(user)):
+                return None
+            ticks = (created.dwHighDateTime << 32) | created.dwLowDateTime
+            return (ticks - 116444736000000000) / 10000000
+        finally:
+            kernel32.CloseHandle(handle)
     result = subprocess.run(
         ["ps", "-o", "lstart=", "-p", str(pid)],
         env={**os.environ, "LC_ALL": "C"},
@@ -83,8 +111,7 @@ def title_counters(title):
 
 
 def resolve_session(sessions, cwd, pane_id, process, panes, started):
-    processes = [p for p in process.get("foreground_processes", [])
-                 if p.get("name") == "codex" or Path(p.get("argv0", "")).name == "codex"]
+    processes = [p for p in process.get("foreground_processes", []) if is_codex_process(p)]
     if len(processes) != 1:
         return None
     argv = processes[0].get("argv") or []
@@ -162,8 +189,7 @@ def main():
     sessions, cwd, pane_id = sys.argv[1:]
     data = json.load(sys.stdin)
     process = data.get("process") or {}
-    processes = [p for p in process.get("foreground_processes", []) if p.get("name") == "codex"
-                 or Path(p.get("argv0", "")).name == "codex"]
+    processes = [p for p in process.get("foreground_processes", []) if is_codex_process(p)]
     started = process_started(processes[0].get("pid")) if len(processes) == 1 else None
     sid = resolve_session(sessions, cwd, pane_id, process, data.get("panes") or [], started)
     if sid:

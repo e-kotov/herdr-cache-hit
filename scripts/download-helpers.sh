@@ -15,6 +15,7 @@ case "$os:$arch" in
   darwin:x86_64)            name="agy-usage-darwin-amd64" ;;
   linux:x86_64)             name="agy-usage-linux-amd64" ;;
   linux:aarch64|linux:arm64) name="agy-usage-linux-arm64" ;;
+  mingw*:x86_64|msys*:x86_64) name="agy-usage-windows-amd64.exe" ;;
   *)
     echo "Unsupported platform: $os:$arch. Please build from source using 'go build ./cmd/agy-usage'." >&2
     exit 1
@@ -65,6 +66,7 @@ case "$os:$arch" in
   darwin:x86_64) expected_pattern="Mach-O 64-bit executable x86_64" ;;
   linux:x86_64) expected_pattern="ELF 64-bit*executable*x86-64" ;;
   linux:aarch64|linux:arm64) expected_pattern="ELF 64-bit*executable*ARM aarch64" ;;
+  mingw*:x86_64|msys*:x86_64) expected_pattern="PE32+ executable*x86-64" ;;
 esac
 if [[ ! "$file_type" == $expected_pattern* ]]; then
   echo "Error: Downloaded file has the wrong format or architecture for $os:$arch (got: $file_type)" >&2
