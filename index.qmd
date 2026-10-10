@@ -38,7 +38,7 @@ Cache Hit plugin for [Herdr](https://herdr.dev/)
 ```{=html}
 <div class="hero-badges">
   <a href="https://github.com/e-kotov/herdr-cache-hit/releases" title="Total release asset downloads, including checksums and notices">
-    <img src="https://img.shields.io/github/downloads/e-kotov/herdr-cache-hit/total?label=asset%20downloads" alt="Total release asset downloads" height="20">
+    <img src="https://img.shields.io/github/downloads/e-kotov/herdr-cache-hit/total?label=release%20downloads" alt="Total release downloads" height="20">
   </a>
 </div>
 ```
