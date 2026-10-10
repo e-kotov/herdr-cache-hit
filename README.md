@@ -1,7 +1,7 @@
 # Herdr Agent Cache Hit & Expiration Plugin (`cache-hit`)
 
 [![CI](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml/badge.svg)](https://github.com/e-kotov/herdr-cache-hit/actions/workflows/ci.yml)
-[![Total release asset downloads](https://img.shields.io/github/downloads/e-kotov/herdr-cache-hit/total?label=asset%20downloads)](https://github.com/e-kotov/herdr-cache-hit/releases)
+[![Total release downloads](https://img.shields.io/github/downloads/e-kotov/herdr-cache-hit/total?label=release%20downloads)](https://github.com/e-kotov/herdr-cache-hit/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [Website and live showcase](https://www.ekotov.pro/herdr-cache-hit/)
