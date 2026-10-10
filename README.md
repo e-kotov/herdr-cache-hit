@@ -37,7 +37,7 @@ When `cache_warmer_allow_nonempty_prompt` is enabled, Herdr sends the warm promp
 - **Dependencies**:
   - `jq` (**Required**): Core JSON parser for state and token metadata (`brew install jq`, `sudo apt install jq`, or `scoop install jq` on Windows). It must be on the `PATH` seen by Git Bash.
   - `bash` (**Required**): Standard on Linux (4.0+) and macOS (native bash 3.2 works; Homebrew bash 4.0+ is also supported). On Windows, install Git for Windows and make sure its `sh.exe` is on the Windows `PATH`. The plugin enters through `sh`, which then starts Git Bash even when the WSL `bash.exe` alias appears earlier on `PATH`.
-  - `python3` 3.6+ (**Optional**): Needed for **OpenCode**, view sorting, and Codex or Claude session recovery when Herdr has no native session ID. Panes with a native session ID need only Bash and jq.
+  - `python3` 3.6+ (**Optional**): Needed for **OpenCode**, view sorting, and Codex or Claude session recovery when Herdr has no native session ID. Also recommended for Codex: it reads the current transcript pointer after prompt rewind/edit. Without Python or an available Codex database, native Codex panes use Bash and jq to select the matching file with the latest usage timestamp; that fallback cannot distinguish a discarded branch with newer usage.
   - `Go` 1.24+ (**Optional**): Only needed if building the AGY SQLite helper from source instead of downloading the precompiled release binary.
 
 ---

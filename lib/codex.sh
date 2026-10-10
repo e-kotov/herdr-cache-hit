@@ -8,88 +8,43 @@ codex_session_for_pane() {
     python3 "$script" "$SESSIONS_DIR" "$cwd" "$pane" 2>/dev/null
 }
 
+rollout_matches_session() {
+  head -n 100 "$1" 2>/dev/null | jq -R -s -e --arg id "$2" '
+    [splits("\\n") | fromjson? | select(type == "object" and .type == "session_meta" and .payload.id == $id)] | length == 1
+  ' >/dev/null 2>&1
+}
 rollout_for_session() {
-  local session_id=$1 path meta index_age now candidate
+  local session_id=$1 path script matches record ts best="" best_ts="" first=""
   [[ -d "$SESSIONS_DIR" && "$session_id" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
 
-  # UUIDv7 fast path: Codex session IDs are UUIDv7, whose first 48 bits encode the
-  # millisecond creation timestamp. Compute the exact YYYY/MM/DD directory directly
-  # without scanning the directory tree or building indices. Checks UTC, local date,
-  # and +/-1 day around midnight timezone boundaries.
-  if [[ "${session_id:14:1}" == "7" && "${#session_id}" -eq 36 ]]; then
-    local hex="${session_id:0:8}${session_id:9:4}"
-    local sec=$(( 16#$hex / 1000 ))
-    local d_utc d_loc d_prev d_next
-    d_utc=$(date -u -r "$sec" +%Y/%m/%d 2>/dev/null || date -u -d "@$sec" +%Y/%m/%d 2>/dev/null)
-    d_loc=$(date -r "$sec" +%Y/%m/%d 2>/dev/null || date -d "@$sec" +%Y/%m/%d 2>/dev/null)
-    d_prev=$(date -u -r "$((sec - 86400))" +%Y/%m/%d 2>/dev/null || date -u -d "@$((sec - 86400))" +%Y/%m/%d 2>/dev/null)
-    d_next=$(date -u -r "$((sec + 86400))" +%Y/%m/%d 2>/dev/null || date -u -d "@$((sec + 86400))" +%Y/%m/%d 2>/dev/null)
-    for candidate in \
-      "$SESSIONS_DIR/$d_utc"/*"$session_id"*.jsonl \
-      "$SESSIONS_DIR/$d_loc"/*"$session_id"*.jsonl \
-      "$SESSIONS_DIR/$d_next"/*"$session_id"*.jsonl \
-      "$SESSIONS_DIR/$d_prev"/*"$session_id"*.jsonl; do
-      if [[ -f "$candidate" ]]; then
-        meta=$(head -n 100 "$candidate" 2>/dev/null | jq -R -s --arg id "$session_id" '[splits("\n") | fromjson? | select(type == "object" and .type == "session_meta" and .payload.id == $id)] | length' 2>/dev/null) || continue
-        if [[ "$meta" == 1 ]]; then
-          printf '%s\n' "$candidate"
-          return 0
-        fi
-      fi
-    done
-  fi
-
-  # Fast path: check flat and recent date-partitioned paths first (avoids full tree scans on network filesystems)
-  local d_now d_now_utc m_now
-  d_now=$(date +%Y/%m/%d)
-  d_now_utc=$(date -u +%Y/%m/%d)
-  m_now=$(date +%Y/%m)
-  for candidate in \
-    "$SESSIONS_DIR"/*"$session_id"*.jsonl \
-    "$SESSIONS_DIR/$d_now"/*"$session_id"*.jsonl \
-    "$SESSIONS_DIR/$d_now_utc"/*"$session_id"*.jsonl \
-    "$SESSIONS_DIR/$m_now"/*/*"$session_id"*.jsonl; do
-    if [[ -f "$candidate" ]]; then
-      meta=$(head -n 100 "$candidate" 2>/dev/null | jq -R -s --arg id "$session_id" '[splits("\n") | fromjson? | select(type == "object" and .type == "session_meta" and .payload.id == $id)] | length' 2>/dev/null) || continue
-      if [[ "$meta" == 1 ]]; then
-        printf '%s\n' "$candidate"
-        return 0
-      fi
+  # Revert preserves the thread ID and old files. Codex's SQLite pointer is
+  # authoritative, even if a discarded branch has more recent usage.
+  script="${PLUGIN_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/codex_rollout.py"
+  if command -v python3 >/dev/null 2>&1; then
+    path=$(python3 "$script" "$SESSIONS_DIR" "$session_id" 2>/dev/null) || path=""
+    if [[ -n "$path" ]] && rollout_matches_session "$path" "$session_id"; then
+      printf '%s\n' "$path"
+      return 0
     fi
-  done
+  fi
 
-  mkdir -p "$STATE_DIR" 2>/dev/null || return 1
-  now=$(date +%s)
-  index_age=999999
-  if [[ -f "$ROLLOUT_INDEX" ]]; then
-    local mtime
-    mtime=$(stat -c %Y "$ROLLOUT_INDEX" 2>/dev/null || stat -f %m "$ROLLOUT_INDEX" 2>/dev/null || printf 0)
-    [[ "$mtime" =~ ^[0-9]+$ ]] || mtime=0
-    index_age=$((now - mtime))
-  fi
-  if (( index_age >= ROLLOUT_INDEX_TTL )); then
-    local tmp; tmp=$(mktemp "${ROLLOUT_INDEX}.XXXXXX") || return 1
-    find "$SESSIONS_DIR" -type f -name '*.jsonl' -print0 2>/dev/null | while IFS= read -r -d '' path; do
-      printf '%s\t%s\n' "$(basename "$path")" "$path"
-    done >"$tmp"
-    mv -f "$tmp" "$ROLLOUT_INDEX"
-  fi
-  while IFS=$'\t' read -r name path; do
-    [[ "$name" == *"$session_id"* ]] || continue
-    meta=$(head -n 100 "$path" 2>/dev/null | jq -R -s --arg id "$session_id" '[splits("\n") | fromjson? | select(type == "object" and .type == "session_meta" and .payload.id == $id)] | length' 2>/dev/null) || continue
-    [[ "$meta" == 1 ]] && { printf '%s\n' "$path"; return 0; }
-  done <"$ROLLOUT_INDEX"
-  # The index is only an optimization. During an active session, a refresh can
-  # race rollout creation; validate matching filenames directly before
-  # declaring the native session unavailable.
-  local matches
+  # Older installations and Bash/jq-only setups have no database reader. Compare
+  # actual usage across all matching files, including continuations on later days;
+  # touching or copying an old file must not move the cache clock backwards.
   matches=$(find "$SESSIONS_DIR" -type f -name "*$session_id*.jsonl" -print 2>/dev/null) || matches=""
   while IFS= read -r path; do
-    [[ -n "$path" ]] || continue
-    meta=$(head -n 100 "$path" 2>/dev/null | jq -R -s --arg id "$session_id" '[splits("\n") | fromjson? | select(type == "object" and .type == "session_meta" and .payload.id == $id)] | length' 2>/dev/null) || continue
-    [[ "$meta" == 1 ]] && { printf '%s\n' "$path"; return 0; }
+    if [[ -z "$path" ]] || ! rollout_matches_session "$path" "$session_id"; then continue; fi
+    [[ -n "$first" ]] || first=$path
+    record=$(latest_usage "$path" "$session_id") || continue
+    [[ -n "$record" ]] || continue
+    ts=${record%%$'\t'*}
+    if [[ -z "$best_ts" || "$ts" > "$best_ts" ]]; then
+      best=$path; best_ts=$ts
+    fi
   done <<<"$matches"
-  return 1
+  path=${best:-$first}
+  [[ -n "$path" ]] || return 1
+  printf '%s\n' "$path"
 }
 parse_timestamp() {
   local value=${1%%.*}; value=${value%Z}

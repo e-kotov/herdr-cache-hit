@@ -64,6 +64,31 @@ roll7="$CODEX_SESSIONS_DIR/2026/05/08/rollout-$uuid7.jsonl"
 printf '%s\n' "{\"type\":\"session_meta\",\"payload\":{\"id\":\"$uuid7\"}}" >"$roll7"
 assert_eq "$(rollout_for_session "$uuid7")" "$roll7" 'UUIDv7 timestamp selects exact historical rollout'
 
+# Revert keeps the thread ID but switches to a new immutable rollout. The
+# superseded branch may contain newer usage than the retained prefix.
+branch_old="$CODEX_SESSIONS_DIR/2026/05/08/rollout-branch.jsonl"
+branch_new="$CODEX_SESSIONS_DIR/2026/09/06/rollout-branch_segment.jsonl"
+printf '%s\n' '{"type":"session_meta","payload":{"id":"branch"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:10:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":500}}}' >"$branch_old"
+printf '%s\n' '{"type":"session_meta","payload":{"id":"branch","history_base":{"thread_id":"branch","end_ordinal_exclusive":1}}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:05:00Z","payload":{"usage":{"input_tokens":2000,"cached_input_tokens":1500}}}' >"$branch_new"
+python3 - "$TMP" "$branch_new" <<'PY'
+import pathlib, sqlite3, sys
+db = sqlite3.connect(str(pathlib.Path(sys.argv[1]) / 'state_5.sqlite'))
+db.execute('CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT)')
+db.execute('INSERT INTO threads VALUES (?, ?)', ('branch', sys.argv[2]))
+db.commit()
+db.close()
+PY
+assert_cmd '[[ "$(rollout_for_session branch)" -ef "$branch_new" ]]' 'Codex database selects current branch even when discarded usage is newer'
+assert_eq "$(codex_usage branch | cut -f3-5)" $'2026-09-06T10:05:00Z\t2000\t1500' 'current branch usage drives the cache clock'
+rm "$TMP/state_5.sqlite"
+printf '%s\n' '{"type":"token_usage_record","timestamp":"2026-09-06T10:15:00Z","payload":{"usage":{"input_tokens":3000,"cached_input_tokens":2500}}}' >>"$branch_new"
+touch "$branch_old"
+assert_eq "$(rollout_for_session branch)" "$branch_new" 'without a database newest valid usage wins across matching files despite old file mtime'
+printf '%s\n' '{"type":"session_meta","payload":{"id":"other"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:30:00Z","payload":{"usage":{"input_tokens":4000,"cached_input_tokens":3500}}}' >"$CODEX_SESSIONS_DIR/rollout-branch_wrong.jsonl"
+printf '%s\n' '{"type":"session_meta","payload":{"id":"branch"}}' '{"type":"token_usage_record","timestamp":' >"$CODEX_SESSIONS_DIR/rollout-branch_partial.jsonl"
+assert_eq "$(rollout_for_session branch)" "$branch_new" 'foreign and incomplete matching rollouts do not displace valid usage'
+rm "$branch_old" "$branch_new" "$CODEX_SESSIONS_DIR/rollout-branch_wrong.jsonl" "$CODEX_SESSIONS_DIR/rollout-branch_partial.jsonl"
+
 assert_eq "$(latest_usage "$roll" "$sid")" $'2026-09-06T10:00:00Z\t1000\t500\tm1\tp1' 'malformed lines are ignored'
 
 # Codex CLI token_count uses per-request counts, not cumulative session totals.
