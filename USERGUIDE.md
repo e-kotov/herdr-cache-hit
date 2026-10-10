@@ -20,7 +20,7 @@ This guide covers full configuration, token customization, sidebar styling, and 
 
 `cache-hit` is an event-driven metadata scanner for [Herdr](https://github.com/herdrdev/herdr).
 - **No Background Daemon**: Herdr events start `watch.sh`; no persistent scanner process is required.
-- **Single Active-Cache Timer**: While at least one cache is active, one lightweight sleep process wakes at the earlier of 15 seconds or the next expiration display transition. This bounds stale state after a same-pane agent restart to 15 seconds. When all caches are cold, no periodic scan is scheduled.
+- **Single Refresh Timer**: While at least one cache is active or an enabled Codex pane is present, one lightweight sleep process wakes at the earlier of 15 seconds or the next expiration display transition. Cold Codex panes continue refreshing so their first cache hit is detected. With no active caches and no enabled Codex panes, no periodic scan is scheduled.
 - **Privacy**: Content is processed locally only as necessary to extract usage metadata and is not intentionally extracted, retained, logged, or transmitted. Only token usage counters, session identifiers, model names, and provider identifiers are tracked.
 
 ---
@@ -42,10 +42,15 @@ If `config.json` does not exist, safe built-in defaults are used. Changes to `co
 | `hot_symbol` | string | `""` | Symbol or emoji prepended to the countdown clock when the cache is active and healthy (> `expiring_threshold_seconds`). E.g. `"♨️"` or `""`. |
 | `expiring_symbol` | string | `"⏰"` | Symbol or emoji prepended when remaining cache lifetime is less than or equal to `expiring_threshold_seconds`. E.g. `"⏰"` or `"⚠️"`. |
 | `cold_symbol` | string | `"❄"` | Symbol shown immediately before retained token counts when the cache has expired. Set `""` to hide it. |
+| `cache_warmer_symbol` | string | `"↻"` | Symbol placed immediately before the countdown for an armed Codex, AGY, or Claude session. Set `""` to hide the indicator. |
+| `cache_warmer_allow_focused_pane` | boolean | `false` | Allow warming the currently focused pane. This only relaxes the focus guard; the session must still be opted in and confirmed idle. Per-agent values can override the root setting. |
+| `cache_warmer_allow_nonempty_prompt` | boolean | `false` | Allow warming when text is already present in the agent's prompt editor. This only relaxes the composer guard. Herdr submits the warm prompt through terminal input, so the existing draft may be submitted together with it. Per-agent values can override the root setting. |
 | `expiring_threshold_seconds`| integer | `300` | Warning threshold in seconds (default 5 minutes). At or below this, the warning symbol appears. |
 | `bold_time` | boolean | `true` | When `true`, converts countdown clock digits into Unicode mathematical sans-serif bold characters (`𝟬-𝟵`) for visual punch. |
 | `bold_threshold_seconds` | integer | `300` | Countdown threshold in seconds under which clock digits turn bold. Keeps healthy caches sleek and non-bold, turning bold only when expiring. |
 | `timezone` | string | `""` | IANA timezone name (e.g. `"Europe/Berlin"`, `"America/New_York"`). When empty, respects `HERDR_PLUGIN_TIMEZONE` or the local system timezone. |
+| `display_agent` | string | `"auto"` | Controls injection of cache stats into Herdr's `--display-agent` metadata (`"auto"`, `"always"`, or `"never"`). In `"auto"` mode, stats are injected only when terminal width $\le$ `mobile_width_threshold` or under Termux, keeping desktop multi-row sidebars clean and free of duplicate badges. |
+| `mobile_width_threshold` | integer | `64` | Terminal column width at or below which Herdr collapses into single-line mobile layout. |
 
 ### Per-Agent Settings
 
@@ -53,8 +58,38 @@ Supported agent keys: `agy` (Antigravity CLI), `claude` (Claude Code), `codex` (
 
 ```json
 {
+  "codex": {
+    "enabled": true,
+    "cache_warmer_sessions": [],
+    "cache_warmer_margin_seconds": 300,
+    "cache_warmer_max_per_session": 0,
+    "cache_warmer_duration_hours": 0,
+    "show_deadline": true,
+    "show_read_tokens": true,
+    "show_write_tokens": false,
+    "show_percentage": true,
+    "show_model": false,
+    "ttl_ceiling": 3600
+  },
   "agy": {
     "enabled": true,
+    "cache_warmer_sessions": [],
+    "cache_warmer_margin_seconds": 60,
+    "cache_warmer_max_per_session": 0,
+    "cache_warmer_duration_hours": 0,
+    "show_deadline": true,
+    "show_read_tokens": true,
+    "show_write_tokens": false,
+    "show_percentage": false,
+    "show_model": false,
+    "ttl_ceiling": 3600
+  },
+  "claude": {
+    "enabled": true,
+    "cache_warmer_sessions": [],
+    "cache_warmer_margin_seconds": 60,
+    "cache_warmer_max_per_session": 0,
+    "cache_warmer_duration_hours": 0,
     "show_deadline": true,
     "show_read_tokens": true,
     "show_write_tokens": false,
@@ -68,12 +103,59 @@ Supported agent keys: `agy` (Antigravity CLI), `claude` (Claude Code), `codex` (
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `enabled` | boolean | `true` | Enable cache tracking for this agent. Set `false` to clear this agent's cache token. |
+| `cache_warmer_sessions` | array of session IDs | `[]` | Codex, AGY, and Claude. Sessions explicitly armed with `prefix+u`; each eligible session may receive a short normal turn near the current countdown deadline. The experimental turn is appended to the conversation. |
+| `cache_warmer_global_enabled` | boolean | `false` | When true, all Codex, AGY, and Claude sessions are armed, including sessions opened later. The command palette item “Switch between global and per-agent warming” toggles this mode; turning it off returns to saved per-session settings and does not turn those settings off. No global shortcut is bound by default. |
+| `cache_warmer_global_excluded_sessions` | object of agent to session ID arrays | `{}` | Per-session exclusions while global mode is on. `prefix+u` toggles the focused session in or out of the global set. |
+| `cache_warmer_margin_seconds` | integer | Codex `300`, AGY and Claude `60` | Attempt a warm turn when the displayed cache countdown reaches this many seconds; accepted range is 30–600 seconds. Claude warming requires cache lifetime evidence from a 5-minute or 1-hour cache write. |
+| `cache_warmer_max_per_session` | integer | `0` | Codex, AGY, and Claude. `0` allows indefinite warming while the session is opted in; set 1–3 to cap warm-turn attempts per session. |
+| `cache_warmer_duration_hours` | integer | `0` | Codex, AGY, and Claude. `0` allows indefinite warming; set `1`–`8760` to stop warming that session this many hours after its first warmer attempt. Applies at the root or per-agent level. |
 | `show_deadline` | boolean | `true` | Include the estimated expiration countdown time (`~15:44`). |
 | `show_read_tokens` | boolean | `true` | Include read/cached tokens counter (e.g. `⇣95.4k`). |
 | `show_write_tokens`| boolean | `false` | Include cache-creation tokens counter (e.g. `⇡12.3k`). |
 | `show_percentage` | boolean | Agent-dependent | Show cache hit percentage (`99%`). Defaults `true` for Codex/OpenCode, `false` for AGY/Claude. |
 | `show_model` | boolean | `false` | Include model name in the token string. |
 | `ttl_ceiling` | integer | `3600` | Hard upper bound in seconds on learned prompt-cache survival time. |
+
+For Codex, the countdown starts from a 30-minute baseline, matching OpenAI's
+current documented default. The plugin shortens that estimate only after at
+least three recorded survival observations below 30 minutes for the same provider
+and model. Longer observations do not extend the Codex countdown. The countdown
+is still an estimate: cache misses can also result from a changed prompt prefix
+or routing, so it is not a guarantee of cache eviction time.
+
+The experimental warmer is off by default. When enabled, it sends a normal
+user turn through Herdr; this adds a short prompt and response to the agent
+conversation and incurs that agent's normal usage. Before submission it
+rechecks the session and requires an idle or done status plus an idle harness
+activity signal. By default the pane must be unfocused and the prompt editor
+empty (`Ask Codex to do anything` for Codex; a standalone `>` prompt for AGY;
+an empty `❯` prompt for Claude). The two `cache_warmer_allow_*` settings can
+independently relax those last two guards; unknown activity state still skips.
+For Claude, a session whose latest reply is an API rejection (for example a
+usage limit) also skips until a later reply succeeds; transient server errors
+do not block.
+Claude cache
+warming follows the lifetime indicated by recorded 5-minute or 1-hour cache
+writes and uses a 60-second default margin. Working parents, including parents waiting on
+subagents, are skipped. Warmed intervals are excluded from survival observations.
+Status and prompt checks cannot make PTY submission atomic with concurrent user
+input. Enabling nonempty-prompt warming may submit the existing draft together
+with the warm prompt, so enable it only when that behavior is acceptable.
+
+With the configured prefix (`Ctrl+B`), toggle warming for the focused Codex, AGY, or Claude
+session with `u`.
+Toggle global warming for all supported warmer sessions, including sessions opened later,
+from the command palette action **Switch between global and per-agent warming**.
+No global-warming shortcut is bound by default. While global mode is on, `u` excludes or restores only the focused
+session. Turning global mode off restores the saved per-session settings. The active cache display gains the
+configured `cache_warmer_symbol` (default `↻`) immediately before the countdown
+when that session is armed. A warm turn is sent only if the pane is idle and
+the estimated deadline nears; focus and prompt-editor requirements follow the
+two independent `cache_warmer_allow_*` settings. Each toggle
+also shows a quiet Herdr notification describing the resulting setting.
+By default, warming continues indefinitely. A finite `cache_warmer_duration_hours`
+starts at the first warmer attempt for each session; after that duration, the
+session is no longer warmed and its armed marker disappears.
 
 ---
 
@@ -83,9 +165,11 @@ The plugin emits the following pane tokens to Herdr:
 
 | Token | Description | Example Output |
 | :--- | :--- | :--- |
-| **`$cache`** | **Unified string** combining status, countdown, percentage, and token counts without middle-dot separators. | Hot: `~15:44 99% ⇣95.4k`<br>Expiring: `⏰~𝟭𝟱:𝟰𝟰 99% ⇣95.4k`<br>Cold: `99% ❄ ⇣95.4k` |
-| **`$cache_status`** | Just the status symbol and countdown clock (empty when cold). | `~15:44` or `⏰~𝟭𝟱:𝟰𝟰` |
-| **`$cache_pct`** | Just the cache hit percentage. | `99%` |
+| **`$cache`** | **Unified string** combining status, countdown, percentage, and token counts without middle-dot separators. Cold output omits the last-request percentage. | Hot: `~15:44 99% ⇣95.4k`<br>Expiring: `⏰~𝟭𝟱:𝟰𝟰 99% ⇣95.4k`<br>Cold: `❄ ⇣95.4k` |
+| **`$cache_status`** | Status symbol and countdown clock. | `~15:44`, `⏰~𝟭𝟱:𝟰𝟰`, or `❄` when cold |
+| **`$cache_pct`** | Formatted cache hit percentage; cleared when cold. | `99%` |
+| **`$cache_pct_num`** | Raw integer hit percentage for numeric comparisons; cleared when cold. | `99` |
+| **`$cache_remaining_secs`** | Seconds remaining until expiration; cleared when cold. | `240` |
 | **`$cache_tokens`** | Just the read/write token counters. | `⇣95.4k` |
 | **`$cache_state`** | Lifecycle state identifier. | `hot`, `expiring`, or `cold` |
 | **`cache_deadline`**| Unix epoch integer timestamp of expiration. | `1788877732` (cleared when cold) |
@@ -107,6 +191,7 @@ rows = [
     { token = "$cache", fg = "#64748b", bold = false, dim = true, rules = [
       { starts_with = "⏰", bold = true, dim = false, fg = "#7f1d1d" }, # Urgent red
       { starts_with = "⚠️", bold = true, dim = false, fg = "#b45309" }, # Warning amber
+      { starts_with = "↻~", bold = false, dim = false, fg = "#713f78" }, # Armed active cache
       { starts_with = "~", bold = false, dim = false, fg = "#713f78" },  # Active magenta
       { starts_with = "♨️", bold = false, dim = false, fg = "#713f78" }  # Active hot
     ] }
@@ -167,10 +252,34 @@ The active mode is saved in `sort_mode.json` and automatically restored whenever
 
 | Agent | Extraction Method | Required Helper / Dependencies |
 | :--- | :--- | :--- |
-| **Codex CLI** | Rollout inspection from `~/.codex/sessions` | None (pure `bash` + `jq`) |
+| **Codex CLI** | Rollout inspection from `${CODEX_HOME:-~/.codex}/sessions` | `bash` + `jq`; `python3` 3.6+ for missing-session recovery |
 | **Claude Code** | Project transcript analysis (`~/.claude/projects/`) | None (pure `bash` + `jq`) |
 | **OpenCode** | SQLite database (`~/.local/share/opencode/opencode.db`) | `python3` |
 | **AGY / Antigravity CLI** | Multi-tier fallback (Statusline → Go helper → Transcript) | Optional Go helper (`agy-usage-*`) or statusline hook |
+
+### Codex Session Recovery
+
+The adapter supports both `token_usage_record.payload.usage` and
+`event_msg.payload.info.last_token_usage` (`token_count`). It uses per-request
+cache counts, ignores quota-only events, and reads model/provider metadata from
+the preceding turn context and session metadata. `CODEX_SESSIONS_DIR` takes
+precedence over `HODEX_SESSIONS_DIR`, then `CODEX_HOME`.
+
+When Herdr has no native Codex session ID, the optional Python helper inspects
+`pane process-info`. An explicit `codex resume <id>` selects that session.
+Otherwise, a unique root rollout matching the process launch time and exact
+directory is selected. When several roots are active, cumulative input/output
+counters in the pane's terminal title can identify a unique matching rollout.
+These totals are used only for session identification, never for the cache-hit
+percentage. Interactive resume can fall back to a unique root with usage since
+process launch in that directory only when no other Codex pane shares it; an
+empty bootstrap thread is excluded when a resumed thread has real usage. Subagents and sessions
+already assigned to other panes are excluded. Ambiguous matches leave the cache
+blank rather than display another session's counters. This publishes only cache
+metadata; it does not change Herdr's native session identity.
+
+The fallback was informed by [herdr-agent-usage](https://github.com/senna-lang/herdr-agent-usage)'s
+Codex adapter, with additional guards for same-directory panes and subagents.
 
 ### AGY / Antigravity CLI Architecture
 
