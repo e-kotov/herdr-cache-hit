@@ -132,6 +132,8 @@ update_pane() {
       provider=$(jq -r '.last_known.provider // ""' "$state" 2>/dev/null || printf "")
     else
       # Different session or no previous state: clear any stale cached state
+      # Keep discovering late usage, but do not poll an already expired cache.
+      PENDING_USAGE_COUNT=$((${PENDING_USAGE_COUNT:-0} + 1))
       if [[ "$prev_active" == "true" || -n "$last_known_sid" ]]; then
         jq '.active = null | .last_known = null' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
       fi
