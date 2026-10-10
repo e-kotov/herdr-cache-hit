@@ -145,7 +145,8 @@ with the warm prompt, so enable it only when that behavior is acceptable.
 With the configured prefix (`Ctrl+B`), toggle warming for the focused Codex, AGY, or Claude
 session with `u`.
 Toggle global warming for all supported warmer sessions, including sessions opened later,
-with `Shift+U`. While global mode is on, `u` excludes or restores only the focused
+from the command palette action **Switch between global and per-agent warming**.
+No global-warming shortcut is bound by default. While global mode is on, `u` excludes or restores only the focused
 session. Turning global mode off restores the saved per-session settings. The active cache display gains the
 configured `cache_warmer_symbol` (default `↻`) immediately before the countdown
 when that session is armed. A warm turn is sent only if the pane is idle and
