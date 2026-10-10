@@ -50,8 +50,8 @@ watch_main() {
       [[ "$cwd" == - ]] && cwd=""
       [[ "$session_path" == - ]] && session_path=""
       # jq @tsv escapes Windows backslashes; restore the original paths.
-      printf -v cwd '%b' "$cwd"
-      printf -v session_path '%b' "$session_path"
+      cwd=$(printf '%b' "$cwd")
+      session_path=$(printf '%b' "$session_path")
       printf '%s\n' "$pane_id" >>"$current"
       if [[ "$agent" == codex ]] && config_agent_enabled codex; then
         agent_rescans=$((agent_rescans + 1))
