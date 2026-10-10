@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.25] - 2026-10-10
+- Fix stale Codex cache clocks after prompt rewind/edit creates another transcript with the same thread ID. Read Codex's current transcript pointer from its database instead of selecting the first matching file.
+- Preserve Bash/jq-only compatibility by comparing valid usage timestamps across matching files. Python 3.6+ is recommended for exact branch selection; the fallback cannot distinguish a discarded branch with newer usage.
+- Add regressions for duplicate transcripts, discarded branches, touched old files, and malformed or mismatched records; add Python 3.6 CI coverage alongside macOS, Linux and Windows Git Bash.
+
 ## [0.1.24] - 2026-10-10
 - Make the Claude and OpenCode session-recovery tests compatible with Python 3.6, matching the supported runtime and GWDG installations. Runtime behavior is unchanged.
 
