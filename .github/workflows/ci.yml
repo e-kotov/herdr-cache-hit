@@ -74,6 +74,21 @@ jobs:
             exit 1
           fi
 
+  python36-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+
+      - name: Check Python 3.6 compatibility
+        run: |
+          docker run --rm -v "$PWD:/work:ro" -w /work python:3.6.15-slim-buster \
+            python -B -m unittest discover -s tests -p 'test_*_session.py'
+          docker run --rm -v "$PWD:/work:ro" -w /work python:3.6.15-slim-buster \
+            python -c 'import ast, pathlib; [ast.parse(p.read_text(encoding="utf-8"), filename=str(p)) for p in pathlib.Path("lib").glob("*.py")]'
+
   windows-test:
     runs-on: windows-latest
     steps:
