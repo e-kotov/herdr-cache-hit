@@ -27,7 +27,16 @@ jobs:
           version: 1.10.18
 
       - name: Render site
-        run: quarto render
+        # Keep the website history aligned with the runtime branch.
+        # _changelog.md is also committed for offline/local previews.
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:CHANGELOG.md | sed '1,2d' > _changelog.md
+          test -s _changelog.md
+          quarto render
+
+      - name: Verify changelog output
+        run: test -s _site/changelog.html
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

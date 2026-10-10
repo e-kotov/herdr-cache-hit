@@ -252,6 +252,19 @@ a:focus-visible {
   height: 20px;
 }
 
+.latest-release {
+  max-width: 780px;
+  margin-top: 1.25rem;
+  padding: 1rem 1.25rem;
+  border-left: 4px solid var(--plum);
+  background: var(--paper-deep);
+  font-size: 1rem;
+}
+
+.latest-release p:last-child {
+  margin-bottom: 0;
+}
+
 .button {
   display: inline-block;
   padding: 0.72rem 1.1rem;
@@ -659,6 +672,11 @@ a:focus-visible {
   border-radius: 0.5rem;
 }
 
+.docs-page :not(pre) > code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .docs-page div.sourceCode {
   border: 1px solid var(--line);
   background: #eee8e3;
@@ -710,6 +728,19 @@ a:focus-visible {
 
 .site-nav-links .docs-nav-link {
   display: inline-block;
+}
+
+@media (max-width: 800px) {
+  .site-nav-links .changelog-nav-link { display: inline-block; }
+  .site-nav-links .nav-ico { display: none; }
+}
+
+@media (max-width: 380px) {
+  .site-nav-inner { padding-inline: 0.6rem; gap: 6px; }
+  .site-nav-brand { gap: 6px; }
+  .site-nav-brand .plugin-pill { font-size: 10px; padding-inline: 5px; }
+  .site-nav-links { gap: 6px; }
+  .site-nav .nav-btn { padding-inline: 8px; }
 }
 
 .site-nav a[aria-current="page"] {

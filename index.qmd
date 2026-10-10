@@ -13,6 +13,7 @@ lang: en
     <div class="site-nav-links">
       <a class="nav-lnk" href="#features">Features</a>
       <a class="nav-lnk docs-nav-link" href="documentation.html">Docs</a>
+      <a class="nav-lnk changelog-nav-link" href="changelog.html">Changelog</a>
       <a class="nav-ico wide" href="https://github.com/e-kotov/herdr-cache-hit" aria-label="cache-hit on GitHub — star count">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.64 7.64 0 0 1 8 3.87c.68 0 1.36.09 2 .26 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
         <b data-stars>0</b>
@@ -44,7 +45,13 @@ Cache Hit plugin for [Herdr](https://herdr.dev/)
 </div>
 ```
 
-Works locally with Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macOS and Linux.
+Works locally with Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macOS, Linux, and Windows through Git Bash.
+
+::: {.latest-release}
+**Latest: [v0.1.25](https://github.com/e-kotov/herdr-cache-hit/releases/tag/v0.1.25)** · October 10, 2026
+
+Codex cache clocks now follow the current transcript after prompt rewind/edit. Recent updates also add native Windows support through Git Bash and fix automatic background refreshes. [See the changelog](changelog.html).
+:::
 :::
 
 ::: {.story-intro .column-body}
@@ -191,7 +198,7 @@ Press `prefix+s` to put the cache closest to expiry at the top of the agents pan
 :::
 
 ::: {.compatibility}
-**Compatibility:** macOS and Linux; Windows through WSL2. `jq` and Bash are required. Python is needed only for OpenCode monitoring or view toggling; Go is needed only to build the optional Antigravity CLI helper from source.
+**Compatibility:** macOS and Linux; native Windows Herdr through Git Bash, with WSL2 also supported. `jq` and Bash are required. Python 3.6+ is recommended for exact Codex transcript selection and needed for OpenCode, sorting, or session recovery without a native session ID. Go is needed only to build the optional Antigravity CLI helper from source.
 :::
 :::
 
@@ -210,7 +217,7 @@ Press `prefix+s` to put the cache closest to expiry at the top of the agents pan
 ```
 
 ::: {.install-links}
-[Documentation](documentation.html) · [GitHub repository](https://github.com/e-kotov/herdr-cache-hit) · [Releases](https://github.com/e-kotov/herdr-cache-hit/releases) · [MIT license](https://github.com/e-kotov/herdr-cache-hit/blob/main/LICENSE)
+[Documentation](documentation.html) · [Changelog](changelog.html) · [GitHub repository](https://github.com/e-kotov/herdr-cache-hit) · [Releases](https://github.com/e-kotov/herdr-cache-hit/releases) · [MIT license](https://github.com/e-kotov/herdr-cache-hit/blob/main/LICENSE)
 :::
 :::
 :::

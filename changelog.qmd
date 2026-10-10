@@ -1,0 +1,43 @@
+---
+pagetitle: "Changelog"
+description: "Release history for the Herdr cache-hit plugin."
+lang: en
+body-classes: docs-page
+format:
+  closeread-html:
+    toc: true
+    toc-title: "Versions"
+    toc-depth: 2
+    page-layout: article
+---
+
+```{=html}
+<nav class="site-nav column-screen" aria-label="Primary navigation">
+  <div class="site-nav-inner">
+    <a class="site-nav-brand" href="index.html"><b>herdr</b><span class="plugin-pill">cache-hit</span></a>
+    <div class="site-nav-sp"></div>
+    <div class="site-nav-links">
+      <a class="nav-lnk" href="index.html">Overview</a>
+      <a class="nav-lnk docs-nav-link" href="documentation.html">Docs</a>
+      <a class="nav-lnk changelog-nav-link" href="changelog.html" aria-current="page">Changelog</a>
+      <a class="nav-btn" href="https://github.com/e-kotov/herdr-cache-hit">GitHub</a>
+    </div>
+  </div>
+</nav>
+```
+
+::: {.docs-intro}
+::: {.eyebrow}
+Release history
+:::
+
+# Changelog
+
+Changes from the plugin's [canonical changelog](https://github.com/e-kotov/herdr-cache-hit/blob/main/CHANGELOG.md), refreshed whenever this website is built. See [GitHub releases](https://github.com/e-kotov/herdr-cache-hit/releases) for downloads and comparison links.
+:::
+
+{{< include _changelog.md >}}
+
+::: {.docs-footer}
+[Install and configure](documentation.html) · [Back to the showcase](index.html).
+:::

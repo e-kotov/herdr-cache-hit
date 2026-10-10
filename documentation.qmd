@@ -21,6 +21,7 @@ format:
     <div class="site-nav-links">
       <a class="nav-lnk" href="index.html">Overview</a>
       <a class="nav-lnk docs-nav-link" href="documentation.html" aria-current="page">Docs</a>
+      <a class="nav-lnk changelog-nav-link" href="changelog.html">Changelog</a>
       <a class="nav-btn" href="https://github.com/e-kotov/herdr-cache-hit">GitHub</a>
     </div>
   </div>
@@ -34,14 +35,14 @@ The cache-hit manual
 
 # A clearer view of your agent’s cache.
 
-Install the plugin, make the sidebar your own, and understand what each indicator means. Supports Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macOS and Linux.
+Install the plugin, make the sidebar your own, and understand what each indicator means. Supports Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macOS, Linux, and Windows through Git Bash.
 
 [Get started](#quick-start){.button .button-primary} [Configuration](#configuration-reference){.button .button-secondary}
 :::
 
 ## Quick start
 
-You need Herdr, Bash, and `jq`. Native macOS Bash 3.2 works. On Windows, run Herdr inside WSL2. Python 3.6+ is also needed for OpenCode, sorting, or Codex session recovery without a native session ID.
+You need Herdr, Bash, and `jq`. Native macOS Bash 3.2 works. On Windows, install Git for Windows and make its `sh.exe` available on the Windows `PATH`; `jq` must also be on the `PATH` seen by Git Bash. WSL2 remains an option. Python 3.6+ is recommended for exact Codex transcript selection and needed for OpenCode, sorting, or Codex/Claude session recovery without a native session ID.
 
 ### Install the plugin
 
@@ -93,7 +94,7 @@ The countdown is an estimate of reusable context, rather than a provider guarant
 
 `cache-hit` is an event-driven metadata scanner for [Herdr](https://github.com/herdrdev/herdr).
 - **No Background Daemon**: Herdr events start `watch.sh`; no persistent scanner process is required.
-- **Single Refresh Timer**: While at least one cache is active or an enabled Codex pane is present, one lightweight sleep process wakes at the earlier of 15 seconds or the next expiration display transition. Cold Codex panes continue refreshing so their first cache hit is detected. With no active caches and no enabled Codex panes, no periodic scan is scheduled.
+- **Single Refresh Timer**: While a cache is active, an enabled Codex pane is present, or an enabled agent pane awaits its first usage record, one lightweight sleep process wakes at the earlier of 15 seconds or the next expiration display transition. Session recovery and late usage can appear without a focus event; expired caches alone do not keep the timer running.
 - **Privacy**: Content is processed locally only as necessary to extract usage metadata and is not intentionally extracted, retained, logged, or transmitted. Only token usage counters, session identifiers, model names, and provider identifiers are tracked.
 
 ## Configuration Reference
@@ -316,12 +317,14 @@ The active mode is saved in `sort_mode.json` and automatically restored whenever
 
 | Agent | Extraction Method | Required Helper / Dependencies |
 | :--- | :--- | :--- |
-| **Codex CLI** | Rollout inspection from `${CODEX_HOME:-~/.codex}/sessions` | `bash` + `jq`; `python3` 3.6+ for missing-session recovery |
-| **Claude Code** | Project transcript analysis (`~/.claude/projects/`) | None (pure `bash` + `jq`) |
+| **Codex CLI** | Current transcript pointer from Codex's SQLite database, with rollout fallback | `bash` + `jq`; `python3` 3.6+ recommended for exact branch selection and required for missing-session recovery |
+| **Claude Code** | Project transcript analysis (`~/.claude/projects/`) | `bash` + `jq`; `python3` 3.6+ for missing-session recovery |
 | **OpenCode** | SQLite database (`~/.local/share/opencode/opencode.db`) | `python3` |
 | **AGY / Antigravity CLI** | Multi-tier fallback (Statusline → Go helper → Transcript) | Optional Go helper (`agy-usage-*`) or statusline hook |
 
 ### Codex Session Recovery
+
+Since v0.1.25, the adapter follows Codex's current transcript pointer in its local database. Prompt rewind/edit can create multiple transcripts with the same thread ID; reading the pointer prevents a discarded branch from supplying stale cache clocks. Python 3.6+ enables this read-only lookup. Without Python or an available database, Bash and jq select the matching transcript with the latest valid usage timestamp; that fallback cannot distinguish a discarded branch with newer usage.
 
 The adapter supports both `token_usage_record.payload.usage` and
 `event_msg.payload.info.last_token_usage` (`token_count`). It uses per-request
@@ -349,7 +352,7 @@ Codex adapter, with additional guards for same-directory panes and subagents.
 
 Because AGY CLI transcripts do not serialize token metrics to disk, the plugin uses a 3-tier fallback strategy:
 1. **Tier 1 — Live Statusline Sidecar (Fastest)**: The supplied `scripts/agy-statusline-capture.sh` wrapper writes real-time prompt cache stats to `~/.cache/herdr-cache-plugin/agy-statusline/<sid>.json` without SQLite parsing.
-2. **Tier 2 — Go SQLite Helper (`agy-usage-*`)**: If the statusline sidecar is absent, the plugin invokes the compiled helper to extract token metrics directly from AGY's internal SQLite database (`~/.gemini/antigravity-cli/conversations/<sid>.db`). Precompiled binaries are provided for macOS and Linux.
+2. **Tier 2 — Go SQLite Helper (`agy-usage-*`)**: If the statusline sidecar is absent, the plugin invokes the compiled helper to extract token metrics directly from AGY's internal SQLite database (`~/.gemini/antigravity-cli/conversations/<sid>.db`). Precompiled binaries are provided for macOS, Linux, and Windows.
 3. **Tier 3 — Transcript Fallback**: If neither is available, it attempts to read `transcript.jsonl` (used by AGY Web IDE).
 
 > [!NOTE]
@@ -382,7 +385,7 @@ bash tests/test_watch.sh
 
 ## Resources
 
-[Example configuration](https://github.com/e-kotov/herdr-cache-hit/blob/main/config.example.json) · [Release notes](https://github.com/e-kotov/herdr-cache-hit/releases) · [Report an issue](https://github.com/e-kotov/herdr-cache-hit/issues) · [Source user guide](https://github.com/e-kotov/herdr-cache-hit/blob/main/USERGUIDE.md)
+[Example configuration](https://github.com/e-kotov/herdr-cache-hit/blob/main/config.example.json) · [Changelog](changelog.html) · [Release notes](https://github.com/e-kotov/herdr-cache-hit/releases) · [Report an issue](https://github.com/e-kotov/herdr-cache-hit/issues) · [Source user guide](https://github.com/e-kotov/herdr-cache-hit/blob/main/USERGUIDE.md)
 
 ::: {.docs-footer}
 Open-source documentation by [Egor Kotov](https://www.ekotov.pro). [Back to the showcase](index.html).
