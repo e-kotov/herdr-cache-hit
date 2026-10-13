@@ -818,6 +818,10 @@ run_download_failure 'wrong Windows helper architecture fails closed'
 unset FAKE_UNAME_OS FAKE_UNAME_ARCH
 
 # Without file(1), as in a default Termux, the executable header decides.
+# The restricted PATH below links tools one by one; Git Bash turns those links
+# into copies that cannot find the MSYS runtime DLL, so run this on macOS and
+# Linux only. The fallback is the same Bash everywhere and the PE case runs here.
+if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 nofile_tools="$TMP/nofile-tools"
 mkdir -p "$nofile_tools"
 cp "$fake_tools/uname" "$fake_tools/curl" "$nofile_tools/"
@@ -864,6 +868,7 @@ if run_nofile_download; then ok 'PE32+ x86-64 helper installs without file(1)'; 
 pe_fixture '\144\252' >"$download_dir/$dl_name"
 if run_nofile_download; then not_ok 'PE32+ Aarch64 helper fails closed without file(1)'; else ok 'PE32+ Aarch64 helper fails closed without file(1)'; fi
 unset FAKE_UNAME_OS FAKE_UNAME_ARCH
+fi
 
 # 11. Auto-adaptive display-agent and mobile layout detection
 da_reports="$TMP/display-agent-reports"
