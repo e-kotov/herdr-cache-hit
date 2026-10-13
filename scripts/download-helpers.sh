@@ -59,8 +59,49 @@ if ! download_file "$url" "$tmp_target" || [[ ! -s "$tmp_target" ]]; then
   exit 1
 fi
 
+# Print LENGTH bytes of FILE at OFFSET as lowercase hex without spaces.
+hex_at() {
+  od -An -tx1 -j "$2" -N "$3" "$1" 2>/dev/null | tr -d ' \n'
+}
+
+# Describe the helper in file(1)'s words for the formats accepted below, from
+# its executable header. Used where file(1) is missing, as in a default Termux.
+describe_executable() {
+  local path=$1 lfanew offset
+  case "$(hex_at "$path" 0 4)" in
+    7f454c46)
+      # 64-bit little-endian, executable or position-independent executable.
+      [[ "$(hex_at "$path" 4 2)" == 0201 ]] || return 0
+      case "$(hex_at "$path" 16 2)" in 0200|0300) ;; *) return 0 ;; esac
+      case "$(hex_at "$path" 18 2)" in
+        3e00) echo "ELF 64-bit LSB executable, x86-64" ;;
+        b700) echo "ELF 64-bit LSB executable, ARM aarch64" ;;
+      esac ;;
+    cffaedfe)
+      [[ "$(hex_at "$path" 12 4)" == 02000000 ]] || return 0
+      case "$(hex_at "$path" 4 4)" in
+        07000001) echo "Mach-O 64-bit executable x86_64" ;;
+        0c000001) echo "Mach-O 64-bit executable arm64" ;;
+      esac ;;
+    4d5a*)
+      lfanew=$(hex_at "$path" 60 4)
+      [[ "$lfanew" =~ ^[0-9a-f]{8}$ ]] || return 0
+      offset=$((16#${lfanew:6:2}${lfanew:4:2}${lfanew:2:2}${lfanew:0:2}))
+      [[ "$(hex_at "$path" "$offset" 4)" == 50450000 ]] || return 0
+      [[ "$(hex_at "$path" $((offset + 24)) 2)" == 0b02 ]] || return 0
+      case "$(hex_at "$path" $((offset + 4)) 2)" in
+        6486) echo "PE32+ executable x86-64" ;;
+        64aa) echo "PE32+ executable Aarch64" ;;
+      esac ;;
+  esac
+}
+
 # Require exactly the executable format and architecture selected above.
-file_type=$(file -b "$tmp_target" 2>/dev/null || true)
+if command -v file >/dev/null 2>&1; then
+  file_type=$(file -b "$tmp_target" 2>/dev/null || true)
+else
+  file_type=$(describe_executable "$tmp_target")
+fi
 case "$os:$arch" in
   darwin:arm64) expected_pattern="Mach-O 64-bit executable arm64" ;;
   darwin:x86_64) expected_pattern="Mach-O 64-bit executable x86_64" ;;

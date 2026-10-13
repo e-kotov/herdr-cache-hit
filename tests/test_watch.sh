@@ -817,6 +817,54 @@ FAKE_FILE_TYPE='PE32+ executable for MS Windows 10.00 (console), Aarch64, 8 sect
 run_download_failure 'wrong Windows helper architecture fails closed'
 unset FAKE_UNAME_OS FAKE_UNAME_ARCH
 
+# Without file(1), as in a default Termux, the executable header decides.
+nofile_tools="$TMP/nofile-tools"
+mkdir -p "$nofile_tools"
+cp "$fake_tools/uname" "$fake_tools/curl" "$nofile_tools/"
+for tool in bash env tr sed head mkdir dirname rm mv cp chmod awk od cat shasum sha256sum; do
+  tool_path=$(command -v "$tool" 2>/dev/null || true)
+  [[ -n "$tool_path" && "$tool_path" == /* ]] && ln -sf "$tool_path" "$nofile_tools/$tool"
+done
+run_nofile_download() {
+  printf '%s\n' 'EXISTING_HELPER' >"$dummy_file"
+  good_sum=$(fixture_sha256 "$download_dir/$dl_name")
+  printf '%s  %s\n' "$good_sum" "$dl_name" >"$download_dir/checksums.txt"
+  PATH="$nofile_tools" FAKE_DOWNLOADS="$download_dir" HERDR_CACHE_BIN_DIR="$dummy_bin_dir" \
+    HERDR_CACHE_HELPER_VERSION="0.1.0" "$nofile_tools/bash" "$ROOT/scripts/download-helpers.sh" >/dev/null 2>&1
+}
+elf_header() { # $1: e_machine bytes
+  printf '\177ELF\002\001\001\000\000\000\000\000\000\000\000\000\002\000'"$1"
+}
+FAKE_UNAME_OS=Linux FAKE_UNAME_ARCH=aarch64
+export FAKE_UNAME_OS FAKE_UNAME_ARCH
+dl_name="agy-usage-linux-arm64"
+dummy_file="$dummy_bin_dir/$dl_name"
+elf_header '\267\000' >"$download_dir/$dl_name"
+if run_nofile_download; then ok 'ELF aarch64 helper installs without file(1)'; else not_ok 'ELF aarch64 helper installs without file(1)'; fi
+assert_cmd "cmp -s \"$download_dir/$dl_name\" \"$dummy_file\"" 'ELF helper installed without file(1) is the download'
+elf_header '\076\000' >"$download_dir/$dl_name"
+if run_nofile_download; then not_ok 'ELF x86-64 helper fails closed on aarch64 without file(1)'; else ok 'ELF x86-64 helper fails closed on aarch64 without file(1)'; fi
+assert_eq "$(<"$dummy_file")" "EXISTING_HELPER" 'wrong ELF architecture without file(1) preserves the old helper'
+printf '%s\n' '<html>Not Found</html>' >"$download_dir/$dl_name"
+if run_nofile_download; then not_ok 'non-executable download fails closed without file(1)'; else ok 'non-executable download fails closed without file(1)'; fi
+FAKE_UNAME_OS=Darwin FAKE_UNAME_ARCH=arm64
+dl_name="agy-usage-darwin-arm64"
+dummy_file="$dummy_bin_dir/$dl_name"
+printf '\317\372\355\376\014\000\000\001\000\000\000\000\002\000\000\000' >"$download_dir/$dl_name"
+if run_nofile_download; then ok 'Mach-O arm64 helper installs without file(1)'; else not_ok 'Mach-O arm64 helper installs without file(1)'; fi
+FAKE_UNAME_OS=MINGW64_NT FAKE_UNAME_ARCH=x86_64
+dl_name="agy-usage-windows-amd64.exe"
+dummy_file="$dummy_bin_dir/$dl_name"
+pe_fixture() { # $1: machine bytes; PE header at 0x40
+  printf 'MZ'; head -c 58 /dev/zero; printf '\100\000\000\000'
+  printf 'PE\000\000'"$1"; head -c 18 /dev/zero; printf '\013\002'
+}
+pe_fixture '\144\206' >"$download_dir/$dl_name"
+if run_nofile_download; then ok 'PE32+ x86-64 helper installs without file(1)'; else not_ok 'PE32+ x86-64 helper installs without file(1)'; fi
+pe_fixture '\144\252' >"$download_dir/$dl_name"
+if run_nofile_download; then not_ok 'PE32+ Aarch64 helper fails closed without file(1)'; else ok 'PE32+ Aarch64 helper fails closed without file(1)'; fi
+unset FAKE_UNAME_OS FAKE_UNAME_ARCH
+
 # 11. Auto-adaptive display-agent and mobile layout detection
 da_reports="$TMP/display-agent-reports"
 da_config_dir="$TMP/da-config"

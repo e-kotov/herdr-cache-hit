@@ -1,5 +1,8 @@
 # Changelog
 
+## [Unreleased]
+- Verify the downloaded helper from its executable header when `file` is unavailable, as in a default Termux, instead of failing the install. The format and architecture check stays as strict.
+
 ## [0.1.25] - 2026-10-10
 - Fix stale Codex cache clocks after prompt rewind/edit creates another transcript with the same thread ID. Read Codex's current transcript pointer from its database instead of selecting the first matching file.
 - Preserve Bash/jq-only compatibility by comparing valid usage timestamps across matching files. Python 3.6+ is recommended for exact branch selection; the fallback cannot distinguish a discarded branch with newer usage.
