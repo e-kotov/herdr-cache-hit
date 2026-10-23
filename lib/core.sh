@@ -8,6 +8,7 @@ readonly STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/sta
 readonly CONFIG_DIR="${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/config/cache-hit}"
 readonly CONFIG_FILE="$CONFIG_DIR/config.json"
 readonly FLOOR_SECONDS=1800
+readonly CODEX_BASELINE_SECONDS=3600
 readonly CEILING_SECONDS=3600
 readonly DISPLAY_TTL_MS=86400000
 readonly SOURCE="herdr-plugin.cache-hit"

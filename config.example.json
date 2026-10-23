@@ -7,6 +7,7 @@
   "hot_symbol": "",
   "expiring_symbol": "⏰",
   "cold_symbol": "❄",
+  "unknown_symbol": "?",
   "cache_warmer_symbol": "↻",
   "expiring_threshold_seconds": 300,
   "bold_time": true,

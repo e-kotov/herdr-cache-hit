@@ -42,6 +42,7 @@ If `config.json` does not exist, safe built-in defaults are used. Changes to `co
 | `hot_symbol` | string | `""` | Symbol or emoji prepended to the countdown clock when the cache is active and healthy (> `expiring_threshold_seconds`). E.g. `"♨️"` or `""`. |
 | `expiring_symbol` | string | `"⏰"` | Symbol or emoji prepended when remaining cache lifetime is less than or equal to `expiring_threshold_seconds`. E.g. `"⏰"` or `"⚠️"`. |
 | `cold_symbol` | string | `"❄"` | Symbol shown immediately before retained token counts when the cache has expired. Set `""` to hide it. |
+| `unknown_symbol` | string | `"?"` | Codex symbol after its estimated lifetime passes. Last-request counters remain visible; current cache status is unknown. |
 | `cache_warmer_symbol` | string | `"↻"` | Symbol placed immediately before the countdown for an armed Codex, AGY, or Claude session. Set `""` to hide the indicator. |
 | `cache_warmer_allow_focused_pane` | boolean | `false` | Allow warming the currently focused pane. This only relaxes the focus guard; the session must still be opted in and confirmed idle. Per-agent values can override the root setting. |
 | `cache_warmer_allow_nonempty_prompt` | boolean | `false` | Allow warming when text is already present in the agent's prompt editor. This only relaxes the composer guard. Herdr submits the warm prompt through terminal input, so the existing draft may be submitted together with it. Per-agent values can override the root setting. |
@@ -116,12 +117,15 @@ Supported agent keys: `agy` (Antigravity CLI), `claude` (Claude Code), `codex` (
 | `show_model` | boolean | `false` | Include model name in the token string. |
 | `ttl_ceiling` | integer | `3600` | Hard upper bound in seconds on learned prompt-cache survival time. |
 
-For Codex, the countdown starts from a 30-minute baseline, matching OpenAI's
-current documented default. The plugin shortens that estimate only after at
-least three recorded survival observations below 30 minutes for the same provider
+For Codex, the countdown starts from a one-hour baseline estimate. Codex's
+native usage reports do not expose a cache lifetime. The plugin shortens the
+estimate only after at least three recorded lower observations for the same provider
 and model. Longer observations do not extend the Codex countdown. The countdown
 is still an estimate: cache misses can also result from a changed prompt prefix
-or routing, so it is not a guarantee of cache eviction time.
+or routing, so it is not a guarantee of cache eviction time. After the estimate
+passes, Codex displays `?` and retains the last-request hit percentage and token
+counts. It clears the active deadline and remaining time, and skips warming that
+elapsed window. This unknown state does not assert that the cache was evicted.
 
 The experimental warmer is off by default. When enabled, it sends a normal
 user turn through Herdr; this adds a short prompt and response to the agent
@@ -166,13 +170,13 @@ The plugin emits the following pane tokens to Herdr:
 | Token | Description | Example Output |
 | :--- | :--- | :--- |
 | **`$cache`** | **Unified string** combining status, countdown, percentage, and token counts without middle-dot separators. Cold output omits the last-request percentage. | Hot: `~15:44 99% ⇣95.4k`<br>Expiring: `⏰~𝟭𝟱:𝟰𝟰 99% ⇣95.4k`<br>Cold: `❄ ⇣95.4k` |
-| **`$cache_status`** | Status symbol and countdown clock. | `~15:44`, `⏰~𝟭𝟱:𝟰𝟰`, or `❄` when cold |
+| **`$cache_status`** | Status symbol and countdown clock. | `~15:44`, `⏰~𝟭𝟱:𝟰𝟰`, `?` when unknown, or `❄` when cold |
 | **`$cache_pct`** | Formatted cache hit percentage; cleared when cold. | `99%` |
-| **`$cache_pct_num`** | Raw integer hit percentage for numeric comparisons; cleared when cold. | `99` |
-| **`$cache_remaining_secs`** | Seconds remaining until expiration; cleared when cold. | `240` |
+| **`$cache_pct_num`** | Raw integer hit percentage for active-cache numeric comparisons; cleared when cold or unknown. | `99` |
+| **`$cache_remaining_secs`** | Seconds remaining in the estimated window; cleared when cold or unknown. | `240` |
 | **`$cache_tokens`** | Just the read/write token counters. | `⇣95.4k` |
-| **`$cache_state`** | Lifecycle state identifier. | `hot`, `expiring`, or `cold` |
-| **`cache_deadline`**| Unix epoch integer timestamp of expiration. | `1788877732` (cleared when cold) |
+| **`$cache_state`** | Lifecycle state identifier. | `hot`, `expiring`, `unknown`, or `cold` |
+| **`cache_deadline`**| Unix epoch integer timestamp of estimated expiration. | `1788877732` (cleared when cold or unknown) |
 
 ---
 

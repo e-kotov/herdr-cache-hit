@@ -193,47 +193,70 @@ printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"toke
 update_pane paneA "$sid"; assert_cmd "jq -e '.active == null' \"$(state_path paneA)\"" 'cold transition sets active null'
 assert_cmd "jq -e '.\"p1:m1\" | length == 1' \"$OBSERVATIONS_FILE\"" 'cold transition records observation in shared observations.json'
 
-# Switch to m2/p2 at 10:02:00Z (hit_at = 10:02:00Z, deadline = 10:32:00Z, ttl = 1800)
+# Switch to m2/p2 at 10:02:00Z with the one-hour Codex estimate.
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:02:00Z","payload":{"usage":{"input_tokens":1,"cached_input_tokens":1},"model":"m2","model_provider":"p2"}}' >"$roll"
 update_pane paneA "$sid"; assert_cmd "jq -e '.active.model == \"m2\" and .active.provider == \"p2\"' \"$(state_path paneA)\"" 'model/provider are isolated'
 
-# Surprise hit past deadline: prompt at 10:47:00Z (45 min = 2700s > 1800s deadline) with cache read hits
+# A hit after 45 minutes remains within the default estimate.
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:47:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":800},"model":"m2","model_provider":"p2"}}' >"$roll"
 update_pane paneA "$sid"
-assert_cmd "jq -e '.\"p2:m2\" | (length == 1 and .[0] == 2700)' \"$OBSERVATIONS_FILE\"" 'surprise hit past deadline records survival observation'
+assert_cmd "jq -e '(.\"p2:m2\" // []) | length == 0' \"$OBSERVATIONS_FILE\"" 'a hit within the Codex estimate does not teach a new lifetime'
 
 # Cross-pane sharing: paneB with same model/provider reads from shared observations
+record_observation p2 m2 2700
 record_observation p2 m2 3300
 learned=$(get_learned_ttl p2 m2 1800)
 assert_eq "$learned" 3000 'shared observations compute learned TTL across panes'
 
-# Codex uses the documented 30-minute baseline; only repeated lower observations shorten it.
+# Only repeated lower observations shorten Codex's one-hour estimate.
 record_observation codex-test codex-model 600
 record_observation codex-test codex-model 900
-learned=$(get_learned_ttl codex-test codex-model 1800 3600 true)
-assert_eq "$learned" 1800 'two lower Codex observations keep the documented baseline'
+learned=$(get_learned_ttl codex-test codex-model 3600 3600 true)
+assert_eq "$learned" 3600 'two lower Codex observations keep the one-hour estimate'
 record_observation codex-test codex-model 1200
-learned=$(get_learned_ttl codex-test codex-model 1800 3600 true)
+learned=$(get_learned_ttl codex-test codex-model 3600 3600 true)
 assert_eq "$learned" 900 'three lower Codex observations shorten the estimate'
-record_observation codex-test codex-long 2100
-record_observation codex-test codex-long 2400
-record_observation codex-test codex-long 2700
-learned=$(get_learned_ttl codex-test codex-long 1800 3600 true)
-assert_eq "$learned" 1800 'longer Codex observations do not extend the baseline'
+record_observation codex-test codex-long 3900 7200
+record_observation codex-test codex-long 4200 7200
+record_observation codex-test codex-long 4500 7200
+learned=$(get_learned_ttl codex-test codex-long 3600 7200 true)
+assert_eq "$learned" 3600 'longer Codex observations do not extend the baseline'
 
-# An upgrade rebases an existing longer Codex deadline without resetting hit time.
+# An upgrade rebases an existing Codex deadline without resetting hit time.
 rebase_now=$(date +%s)
 rebase_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 codex_usage() { printf 'codex\tsRebase\t%s\t1000\t800\t0\t0\t0\tmRebase\tpRebase\t/same\n' "$rebase_ts"; }
 rebase_sig='codex|sRebase|mRebase|pRebase|1000|800|0|0|0'
 jq -n --arg sig "$rebase_sig" --argjson now "$rebase_now" '{active:{agent:"codex",session_id:"sRebase",model:"mRebase",provider:"pRebase",signature:$sig,hit_at:$now,deadline:($now+2467),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneRebase)"
 update_pane paneRebase codex sRebase
-assert_eq "$(jq -r '.active.deadline' "$(state_path paneRebase)")" "$((rebase_now + 1800))" 'upgrade rebases an old Codex estimate from its original hit time'
+assert_eq "$(jq -r '.active.deadline' "$(state_path paneRebase)")" "$((rebase_now + 3600))" 'upgrade rebases an old Codex estimate from its original hit time'
 codex_usage() { return 1; }
 jq -n --argjson now "$rebase_now" '{active:{agent:"codex",session_id:"sNoRecord",model:"mRebase",provider:"pRebase",signature:"old",hit_at:$now,deadline:($now+2467),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneRebaseNoRecord)"
 update_pane paneRebaseNoRecord codex sNoRecord
-assert_eq "$(jq -r '.active.deadline' "$(state_path paneRebaseNoRecord)")" "$((rebase_now + 1800))" 'upgrade rebases cached Codex state when usage is temporarily unavailable'
+assert_eq "$(jq -r '.active.deadline' "$(state_path paneRebaseNoRecord)")" "$((rebase_now + 3600))" 'upgrade rebases cached Codex state when usage is temporarily unavailable'
 unset -f codex_usage
+
+# Elapsed estimates retain the last request without asserting cache eviction.
+policy_epoch=$(parse_timestamp '2026-10-23T08:00:00Z')
+policy_cached=800
+codex_usage() { printf 'codex\tpolicy-session\t2026-10-23T08:00:00Z\t1000\t%s\t0\t0\t0\tpolicy-model\topenai\t/same\n' "$policy_cached"; }
+report_pane() { policy_state=$8; policy_status=$5; policy_pct=$6; policy_deadline=${10}; }
+now=$policy_epoch update_pane panePolicy codex policy-session
+assert_eq "$(jq -r '.active.deadline - .active.hit_at' "$(state_path panePolicy)")" 3600 'Codex default estimate lasts one hour'
+now=$((policy_epoch + 3600)) update_pane panePolicy codex policy-session
+assert_eq "$policy_state" unknown 'elapsed Codex estimate reports unknown instead of cold'
+assert_eq "$policy_status" '?' 'unknown Codex cache has no expired snowflake'
+assert_eq "$policy_pct" '80%' 'unknown Codex cache preserves the last-request hit percentage'
+assert_eq "$policy_deadline" '' 'unknown Codex cache has no active sorting deadline'
+codex_usage() { return 1; }
+now=$((policy_epoch + 3630)) update_pane panePolicy codex policy-session
+assert_eq "$policy_state" unknown 'missing usage after an elapsed estimate stays unknown'
+assert_eq "$policy_pct" '80%' 'missing usage preserves historical hit percentage'
+codex_usage() { printf 'codex\tpolicy-miss\t2026-10-23T08:00:00Z\t1000\t0\t0\t0\t0\tpolicy-model\topenai\t/same\n'; }
+now=$policy_epoch update_pane panePolicyMiss codex policy-miss
+assert_eq "$policy_state" cold 'a reported Codex miss still reports cold'
+unset -f codex_usage
+report_pane() { :; }
 
 # Prefix shift guardrail: cold drop within 20s does not add to observations
 printf '%s\n' '{"type":"session_meta","payload":{"id":"aaa111"}}' '{"type":"token_usage_record","timestamp":"2026-09-06T10:47:20Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":0},"model":"m2","model_provider":"p2"}}' >"$roll"
@@ -489,14 +512,14 @@ assert_cmd '[[ "$(jq -r ".last_known" "$(state_path paneSurvive)")" == "null" ]]
 codex_usage() { printf 'codex\tsess-cold\t%s\t1000\t0\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 jq -n --argjson now "$now" '{active:{agent:"codex",session_id:"sess-cold",model:"m",provider:"p",signature:"old",hit_at:($now-60),deadline:($now-1),input:1000,read:800,write:0,write5m:0,write1h:0},observations:[]}' >"$(state_path paneColdCodex)"
 now=$now update_pane paneColdCodex codex sess-cold
-assert_eq "$last_reported" "❄ ⇣800" 'Codex cold cache suppresses percentage and keeps retained token count'
-assert_eq "$last_pct" "" 'Codex cold formatter clears formatted percentage'
+assert_eq "$last_reported" "? 80% ⇣800" 'Codex elapsed estimate keeps retained usage with unknown status'
+assert_eq "$last_pct" "80%" 'Codex unknown formatter retains last-request percentage'
 assert_eq "$last_pct_num" "" 'Codex cold formatter clears numeric percentage'
 assert_eq "$last_remaining" "" 'Codex cold formatter clears remaining seconds'
 codex_usage() { printf 'codex\ts1\t%s\t1000\t800\t0\t0\t0\tm\tp\t/same\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
 # 1. Hot state: deadline 10 minutes ahead (> 300s)
-jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-3000),deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_eq "$last_deadline" "$((now+600))" 'active pane passes deadline to report_pane'
 if (( last_remaining >= 540 && last_remaining <= 600 )); then ok 'active pane passes remaining seconds to report_pane'; else not_ok 'active pane passes remaining seconds to report_pane'; fi
@@ -505,7 +528,7 @@ assert_cmd "[[ \"$last_reported\" == '~'* && \"$last_reported\" != *'♨️'* ]]
 assert_cmd "[[ \"$last_reported\" =~ ~[0-9]{2}:[0-9]{2} ]]" 'hot cache clock remains non-bold before threshold (>5m)'
 
 # 2. Expiring state: deadline 4 minutes ahead (<= 300s)
-jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1560),deadline:($now+240)},observations:[]}' >"$(state_path paneSym)"
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-3360),deadline:($now+240)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'⏰'* ]]" 'expiring cache under 5m displays ⏰ by default'
 assert_cmd "[[ \"$last_reported\" =~ (𝟬|𝟭|𝟮|𝟯|𝟰|𝟱|𝟲|𝟳|𝟴|𝟵) ]]" 'expiring cache clock converts to bold digits under threshold (<=5m)'
@@ -517,14 +540,14 @@ update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'🔥'* ]]" 'custom hot symbol and threshold are respected'
 assert_cmd "[[ \"$last_reported\" =~ [0-9]{2}:[0-9]{2} ]]" 'clock stays non-bold when above custom bold threshold'
 now=$(date +%s)
-jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-1770),deadline:($now+30)},observations:[]}' >"$(state_path paneSym)"
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-3570),deadline:($now+30)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'⚡'* ]]" 'custom expiring symbol is respected'
 assert_cmd "[[ \"$last_reported\" =~ (𝟬|𝟭|𝟮|𝟯|𝟰|𝟱|𝟲|𝟳|𝟴|𝟵) ]]" 'clock becomes bold when under custom bold threshold'
 
 # 4. Arbitrary user text/emoji/empty symbols
 printf '%s\n' '{"hot_symbol":"[HOT]","expiring_symbol":"","cold_symbol":"🧊"}' >"$HERDR_PLUGIN_CONFIG_DIR/config.json"
-jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:$now,deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
+jq -n --arg sig "$sig" --argjson now "$now" '{active:{agent:"codex",session_id:"s1",model:"m",provider:"p",signature:$sig,hit_at:($now-3000),deadline:($now+600)},observations:[]}' >"$(state_path paneSym)"
 update_pane paneSym codex s1
 assert_cmd "[[ \"$last_reported\" == *'[HOT]'* ]]" 'arbitrary text or emoji symbols are allowed'
 rm -f "$HERDR_PLUGIN_CONFIG_DIR/config.json"

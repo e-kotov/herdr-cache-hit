@@ -153,6 +153,7 @@ update_pane() {
     record_epoch=$(parse_timestamp "$ts") || { clear_pane "$pane" "$agent"; return 0; }
     local signature; signature="$agent|$session_id|$model|$provider|$input|$read|$write|$write5m|$write1h"
     ttl_floor=$FLOOR_SECONDS
+    [[ "$agent" == codex ]] && ttl_floor=$CODEX_BASELINE_SECONDS
     local ttl_max
     ttl_max=$(config_int "$agent" ttl_ceiling "$CEILING_SECONDS")
     local claude_ttl=0
@@ -228,8 +229,8 @@ update_pane() {
         fi
         local ttl
         if [[ "$agent" == codex ]]; then
-          # Use the documented 30m baseline. Only shorten it after at least three
-          # recorded survival observations below 30m; longer intervals never extend it.
+          # Codex reports no lifetime. Use the one-hour estimate unless repeated
+          # lower observations shorten it; longer intervals never extend it.
           ttl=$(get_learned_ttl "$provider" "$model" "$ttl_floor" "$ttl_max" true)
         else
           ttl=$(get_learned_ttl "$provider" "$model" "$ttl_floor" "$ttl_max")
@@ -249,8 +250,7 @@ update_pane() {
       jq --arg agent "$agent" --arg sid "$session_id" --argjson deadline "$source_deadline" 'if .active != null and .active.agent == $agent and .active.session_id == $sid then .active.deadline=$deadline else . end' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
     fi
   fi
-  # Rebase existing Codex state after a policy change without extending the
-  # cache lifetime: keep the original hit time and apply the new model estimate.
+  # Rebase the estimate from the original hit, never from the refresh time.
   local rebase_codex_state=false codex_max
   if [[ -z "$record" ]]; then
     if [[ "$prev_active" == true && "$prev_sid" == "$session_id" && "$prev_deadline" =~ ^[0-9]+$ && "$prev_deadline" -gt "$now" ]]; then
@@ -261,12 +261,12 @@ update_pane() {
   fi
   if [[ "$agent" == codex && "$rebase_codex_state" == true ]]; then
     local codex_ttl codex_floor prev_ttl rebased_deadline
-    codex_floor=$FLOOR_SECONDS
+    codex_floor=$CODEX_BASELINE_SECONDS
     codex_max=$(config_int codex ttl_ceiling "$CEILING_SECONDS")
     codex_ttl=$(get_learned_ttl "$provider" "$model" "$codex_floor" "$codex_max" true)
     prev_ttl=$((prev_deadline - prev_hit_at))
     rebased_deadline=$((prev_hit_at + codex_ttl))
-    if (( prev_ttl > codex_ttl )); then
+    if (( prev_ttl != codex_ttl )); then
       jq --argjson deadline "$rebased_deadline" '.active.deadline = $deadline' "$state" >"$state.tmp" 2>/dev/null && atomic_install "$state.tmp" "$state"
     fi
   fi
@@ -341,6 +341,10 @@ update_pane() {
           EARLIEST_WAKE=$pane_wake
         fi
       fi
+    elif [[ "$read" -gt 0 && "$deadline" -le "$now" ]]; then
+      state_name="unknown"
+      status_text=$(config_str "$agent" unknown_symbol "?")
+      ttl_ms=$DISPLAY_TTL_MS
     else
       state_name="cold"
       status_text="$cold_sym"
