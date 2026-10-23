@@ -114,6 +114,32 @@ assert_eq "$(latest_usage "$modern_roll" modern | cut -f1-3)" $'2026-09-06T10:06
 bare_roll="$TMP/bare-codex.jsonl"
 printf '%s\n' '{"type":"token_usage_record","timestamp":"2026-09-06T10:00:00Z","payload":{"usage":{"input_tokens":1000,"cached_input_tokens":500}}}' >"$bare_roll"
 assert_eq "$(latest_usage "$bare_roll" bare)" $'2026-09-06T10:00:00Z\t1000\t500\tcodex\topenai' 'missing model/provider use nonempty defaults before TSV parsing'
+
+compacted_roll="$CODEX_SESSIONS_DIR/2026/09/06/rollout-compacted.jsonl"
+cat >"$compacted_roll" <<'JSONL'
+{"type":"session_meta","payload":{"id":"compacted"}}
+{"type":"event_msg","timestamp":"2026-09-06T10:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":231896,"cached_input_tokens":13312,"total_tokens":231901}}}}
+{"type":"compacted","timestamp":"2026-09-06T10:30:00Z","payload":{}}
+{"type":"event_msg","timestamp":"2026-09-06T10:30:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"total_tokens":25411}}}}
+JSONL
+assert_eq "$(latest_usage "$compacted_roll" compacted | cut -f1-3)" $'2026-09-06T10:00:00Z\t231896\t13312' 'compaction preserves the actual request counters and timestamp'
+compacted_display=$(HERDR_PLUGIN_STATE_DIR="$TMP/compacted-state" HERDR_PLUGIN_CONFIG_DIR="$TMP/compacted-config" bash -c '
+  source "$1/lib/core.sh"; source "$1/lib/codex.sh"; source "$1/lib/cache.sh"
+  mkdir -p "$STATE_DIR" "$CONFIG_DIR"
+  report_pane() { printf "%s|%s" "$7" "$8"; }
+  clear_pane() { printf "cleared"; }
+  update_pane compacted-pane codex compacted
+' _ "$ROOT")
+assert_eq "$compacted_display" '⇣13.3k|unknown' 'fresh state after compaction restores last-request cache reads without a false miss'
+printf '%s\n' '{"type":"token_usage_record","timestamp":"2026-09-06T10:31:00Z","payload":{"usage":{"input_tokens":0,"cached_input_tokens":0}}}' >>"$compacted_roll"
+assert_eq "$(latest_usage "$compacted_roll" compacted | cut -f1-3)" $'2026-09-06T10:00:00Z\t231896\t13312' 'legacy zero-token reports also preserve last-request usage'
+printf '%s\n' '{"type":"event_msg","timestamp":"2026-09-06T10:40:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":25411,"cached_input_tokens":0}}}}' >>"$compacted_roll"
+assert_eq "$(latest_usage "$compacted_roll" compacted | cut -f1-3)" $'2026-09-06T10:40:00Z\t25411\t0' 'a real request with no cache reads still replaces pre-compaction usage'
+printf '%s\n' '{"type":"event_msg","timestamp":"2026-09-06T10:41:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"total_tokens":12000}}}}' >>"$compacted_roll"
+assert_eq "$(latest_usage "$compacted_roll" compacted | cut -f1-3)" $'2026-09-06T10:40:00Z\t25411\t0' 'later compaction does not overwrite the last real cache miss'
+context_only_roll="$TMP/context-only.jsonl"
+printf '%s\n' '{"type":"event_msg","timestamp":"2026-09-06T10:30:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"total_tokens":25411}}}}' >"$context_only_roll"
+assert_eq "$(latest_usage "$context_only_roll" context-only)" '' 'a context-only report is not evidence of a cache miss'
 assert_eq "$(CODEX_HOME="$TMP/custom-home" env -u CODEX_SESSIONS_DIR -u HODEX_SESSIONS_DIR bash -c 'source "$1/lib/core.sh"; printf "%s" "$SESSIONS_DIR"' _ "$ROOT")" "$TMP/custom-home/sessions" 'Codex home overrides the default session directory'
 
 if python3 - "$ROOT" "$TMP" <<'PY'

@@ -14,9 +14,9 @@ A high-efficiency plugin for [Herdr](https://github.com/herdrdev/herdr) that pro
 
 Supports **Codex CLI**, **AGY** ([Antigravity CLI](docs/AGY_INTEGRATION.md)), **Claude Code**, and **OpenCode**.
 
-## Latest release: v0.1.25
+## Latest release: v0.1.26
 
-[v0.1.25](https://github.com/e-kotov/herdr-cache-hit/releases/tag/v0.1.25) fixes stale Codex cache clocks after prompt rewind/edit by following the current transcript. Recent releases add native Windows support through Git Bash and fix automatic background refreshes. macOS, Linux, Windows Git Bash and Python 3.6 CI pass.
+[v0.1.26](https://github.com/e-kotov/herdr-cache-hit/releases/tag/v0.1.26) preserves last-request Codex cache counters after compaction, including when no saved plugin state exists. Its one-hour cache estimate becomes unknown when elapsed, without claiming eviction. Recent releases add native Windows support through Git Bash and fix automatic background refreshes.
 
 Python 3.6+ is recommended for exact Codex transcript selection. [Read the full changelog](CHANGELOG.md).
 

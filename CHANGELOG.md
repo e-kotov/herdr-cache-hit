@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.26] - 2026-10-24
+- Preserve Codex's last-request cache counters and timestamp after compaction. Context-only reports with zero request counters no longer erase cache reads or appear as a cache miss, including after a restart without saved state. The parser still accepts real requests with input tokens and zero cache reads.
+- Use a one-hour Codex cache estimate. After that estimate elapses, keep the last-request counters and show unknown cache status instead of claiming eviction; cache misses do not shorten the estimate.
 - Verify the downloaded helper from its executable header when `file` is unavailable, as in a default Termux, instead of failing the install. The format and architecture check stays as strict.
 
 ## [0.1.25] - 2026-10-10

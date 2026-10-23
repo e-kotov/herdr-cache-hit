@@ -54,6 +54,8 @@ latest_usage() {
   local path=$1 session_id=$2
   # Filter out content before JSON parsing, and keep constant-size state. Unlike
   # an arbitrary recent tail, this also finds usage during long tool-only turns.
+  # Compaction reports a context total with zero request counters; it is not a
+  # cache miss and must not replace the last actual request or its timestamp.
   awk '/"type"[[:space:]]*:[[:space:]]*"(session_meta|turn_context|token_usage_record|token_count)"/' "$path" 2>/dev/null | jq -Rrn --arg id "$session_id" '
     def nonempty_string: type == "string" and length > 0;
     def token_count: if type == "number" then . >= 0 and floor == . else false end;
@@ -72,7 +74,8 @@ latest_usage() {
             ($row.payload.session_id == null or $row.payload.session_id == $id) and
             ($row.timestamp | type) == "string" and
             ($row.timestamp | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T")) and
-            ($usage.input_tokens | token_count) and ($usage.cached_input_tokens | token_count) then
+            ($usage.input_tokens | token_count) and ($usage.cached_input_tokens | token_count) and
+            ($usage.input_tokens > 0 or $usage.cached_input_tokens > 0) then
            .latest = {ts:$row.timestamp, input:$usage.input_tokens, cached:$usage.cached_input_tokens,
              model:(if ($row.payload.model | nonempty_string) then $row.payload.model else .model end),
              provider:(if ($row.payload.model_provider | nonempty_string) then $row.payload.model_provider else .provider end)}
