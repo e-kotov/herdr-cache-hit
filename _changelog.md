@@ -1,3 +1,19 @@
+## [Unreleased]
+
+## [0.2.0] - 2026-11-04
+- Add experimental, display-only support for [Herdr App](https://github.com/herdrdev/herdr-app) ([website](https://herdr.dev/)), contributed by [@akunzai](https://github.com/akunzai) in [#15](https://github.com/e-kotov/herdr-cache-hit/pull/15). A bundled desktop mod runs the shared scanner through a herdr-core shim, including on Windows, and publishes the estimates as `shared("cache-hit")`. See the [installation and Agents-sidebar recipe](https://github.com/e-kotov/herdr-cache-hit/blob/main/USERGUIDE.md#herdr-app-experimental). Desktop warming and sorting are not included; existing TUI plugin features remain available.
+- Treat a canceled AGY background task as finished. One canceled task kept the cache warmer out of that session for the rest of its life.
+- Read AGY 1.4 transcripts, which write uncached input and cache reads at the top level of `PLANNER_RESPONSE` steps and have no cache-write count. Without statusline data, such sessions showed no cache value.
+- Keep LF line endings from a native Windows `jq` in Git Bash. Every raw value but the last ended in `\r`, so only one of several agents matched.
+- Run the test suite under Bash 3.2 in CI, the version macOS still ships as `/bin/bash`.
+
+Thanks to [@akunzai](https://github.com/akunzai) for the desktop integration and the AGY, Windows and Bash 3.2 improvements in [#11](https://github.com/e-kotov/herdr-cache-hit/pull/11), [#12](https://github.com/e-kotov/herdr-cache-hit/pull/12), [#13](https://github.com/e-kotov/herdr-cache-hit/pull/13), [#14](https://github.com/e-kotov/herdr-cache-hit/pull/14) and [#15](https://github.com/e-kotov/herdr-cache-hit/pull/15).
+
+## [0.1.26] - 2026-10-24
+- Preserve Codex's last-request cache counters and timestamp after compaction. Context-only reports with zero request counters no longer erase cache reads or appear as a cache miss, including after a restart without saved state. The parser still accepts real requests with input tokens and zero cache reads.
+- Use a one-hour Codex cache estimate. After that estimate elapses, keep the last-request counters and show unknown cache status instead of claiming eviction; cache misses do not shorten the estimate.
+- Verify the downloaded helper from its executable header when `file` is unavailable, as in a default Termux, instead of failing the install. The format and architecture check stays as strict.
+
 ## [0.1.25] - 2026-10-10
 - Fix stale Codex cache clocks after prompt rewind/edit creates another transcript with the same thread ID. Read Codex's current transcript pointer from its database instead of selecting the first matching file.
 - Preserve Bash/jq-only compatibility by comparing valid usage timestamps across matching files. Python 3.6+ is recommended for exact branch selection; the fallback cannot distinguish a discarded branch with newer usage.

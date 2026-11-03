@@ -1,5 +1,5 @@
 ---
-description: "Live prompt-cache metrics and expiration-aware agent sorting for Herdr."
+description: "Prompt-cache metrics for Herdr TUI and experimental Herdr App desktop support."
 lang: en
 ---
 
@@ -31,7 +31,7 @@ Cache Hit plugin for [Herdr](https://herdr.dev/)
 
 # Keep the warm context warm.
 
-`cache-hit` gives [Herdr](https://herdr.dev/) a real-time view of prompt-cache health: hit ratios, retained tokens, expiration countdowns, and deadline-aware agent sorting.
+`cache-hit` gives [Herdr TUI](https://github.com/herdrdev/herdr) a real-time view of prompt-cache health: hit ratios, retained tokens, expiration countdowns, and deadline-aware agent sorting. The same project now brings cache display to [Herdr App](https://github.com/herdrdev/herdr-app), the [desktop app](https://herdr.dev/), through an experimental mod.
 
 ::: {.hero-actions}
 [Install the plugin](#install){.button .button-primary} [View on GitHub](https://github.com/e-kotov/herdr-cache-hit){.button .button-secondary}
@@ -48,9 +48,9 @@ Cache Hit plugin for [Herdr](https://herdr.dev/)
 Works locally with Codex CLI, Claude Code, OpenCode, and Antigravity CLI on macOS, Linux, and Windows through Git Bash.
 
 ::: {.latest-release}
-**Latest: [v0.1.25](https://github.com/e-kotov/herdr-cache-hit/releases/tag/v0.1.25)** · October 10, 2026
+**Latest: [v0.2.0](https://github.com/e-kotov/herdr-cache-hit/releases/tag/v0.2.0)** · November 4, 2026
 
-Codex cache clocks now follow the current transcript after prompt rewind/edit. Recent updates also add native Windows support through Git Bash and fix automatic background refreshes. [See the changelog](changelog.html).
+New experimental Herdr App support by [@akunzai](https://github.com/akunzai), with AGY 1.4 compatibility, canceled-task handling, Windows fixes and Bash 3.2 CI coverage. One shared scanner powers the TUI plugin and desktop mod. [See the changelog](changelog.html).
 :::
 :::
 
@@ -58,6 +58,8 @@ Codex cache clocks now follow the current transcript after prompt rewind/edit. R
 ## Features {#features}
 
 One compact sidebar answers the question that matters before you switch agents: which context is still reusable, and which one needs attention now?
+
+The screenshots below show the Herdr TUI. For the desktop app, see the [Herdr App setup](documentation.html#herdr-app-experimental).
 :::
 
 :::: {.desktop-story .cr-section layout="sidebar-left"}
@@ -199,12 +201,16 @@ Press `prefix+s` to put the cache closest to expiry at the top of the agents pan
 
 ::: {.compatibility}
 **Compatibility:** macOS and Linux; native Windows Herdr through Git Bash, with WSL2 also supported. `jq` and Bash are required. Python 3.6+ is recommended for exact Codex transcript selection and needed for OpenCode, sorting, or session recovery without a native session ID. Go is needed only to build the optional Antigravity CLI helper from source.
+
+**Herdr App desktop:** install the bundled mod from this same repository using the [desktop instructions](documentation.html#herdr-app-experimental). Desktop support is experimental, community-maintained and display-only: cache warming and agent sorting remain TUI features. Its configuration and state are separate from the TUI plugin.
 :::
 :::
 
 ::: {.install}
 ::: {.install-inner}
 ## Install {#install}
+
+**Herdr TUI:** use the command below. **Herdr App desktop:** follow the [mod installation and sidebar recipe](documentation.html#herdr-app-experimental).
 
 ```{=html}
 <div class="install-card">
@@ -224,6 +230,10 @@ Press `prefix+s` to put the cache closest to expiry at the top of the agents pan
 
 ::: {.site-footer}
 `cache-hit` is an open-source plugin for Herdr by [Egor Kotov](https://www.ekotov.pro).
+
+## Contributors
+
+[Egor Kotov](https://github.com/e-kotov) maintains the project. [@akunzai](https://github.com/akunzai) contributed the [Herdr App integration (#15)](https://github.com/e-kotov/herdr-cache-hit/pull/15), AGY compatibility, Windows fixes and Bash 3.2 CI coverage. See all [contributors](https://github.com/e-kotov/herdr-cache-hit/graphs/contributors).
 :::
 
 ```{=html}
